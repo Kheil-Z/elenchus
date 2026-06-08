@@ -1,11 +1,17 @@
 import type { Metadata } from "next";
-import { Instrument_Serif, DM_Sans } from "next/font/google";
+import { Instrument_Serif, DM_Sans, Cinzel } from "next/font/google";
 import "./globals.css";
 
 const instrumentSerif = Instrument_Serif({
   variable: "--font-instrument-serif",
   subsets: ["latin"],
   weight: "400",
+});
+
+const cinzel = Cinzel({
+  variable: "--font-cinzel",
+  subsets: ["latin"],
+  weight: ["400", "600"],
 });
 
 const dmSans = DM_Sans({
@@ -27,7 +33,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${instrumentSerif.variable} ${dmSans.variable} h-full`}
+      className={`${instrumentSerif.variable} ${dmSans.variable} ${cinzel.variable} h-full`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>

@@ -16,6 +16,7 @@
   --color-user-amber: #F59E0B;
 
   /* Fonts */
+  --font-cinzel: var(--font-cinzel);
   --font-serif: var(--font-instrument-serif);
   --font-sans: var(--font-dm-sans);
 }
