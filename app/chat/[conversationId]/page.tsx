@@ -110,6 +110,7 @@ export default function ChatPage() {
     <ChatLayout
       title="Onboarding Flow Redesign"
       projectName="Product Redesign"
+      projectId="test"
       sidebar={
         <ChatSidebar
           projectName="Product Redesign"

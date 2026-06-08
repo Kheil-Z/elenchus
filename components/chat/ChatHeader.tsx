@@ -3,13 +3,29 @@ import Link from "next/link";
 interface ChatHeaderProps {
   title: string;
   projectName: string;
+  navOpen?: boolean;
+  onToggleNav?: () => void;
   sidebarOpen?: boolean;
   onToggleSidebar?: () => void;
 }
 
-export function ChatHeader({ title, projectName, sidebarOpen, onToggleSidebar }: ChatHeaderProps) {
+export function ChatHeader({ title, projectName, navOpen, onToggleNav, sidebarOpen, onToggleSidebar }: ChatHeaderProps) {
   return (
     <header className="h-14 border-b border-border bg-surface flex items-center px-5 gap-3 shrink-0">
+      {/* Nav toggle */}
+      {onToggleNav && (
+        <button
+          onClick={onToggleNav}
+          aria-label={navOpen ? "Hide navigation" : "Show navigation"}
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-muted hover:text-foreground hover:bg-background transition-colors shrink-0"
+        >
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+            <rect x="1" y="1.5" width="13" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+            <line x1="5.5" y1="1.5" x2="5.5" y2="13.5" stroke="currentColor" strokeWidth="1.2" />
+          </svg>
+        </button>
+      )}
+
       <Link
         href="/"
         className="flex items-center gap-1.5 text-sm text-muted hover:text-foreground transition-colors shrink-0"
