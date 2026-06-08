@@ -71,7 +71,8 @@ export function InputBar({ currentUser, members = [] }: InputBarProps) {
   const firstName = (name: string) => name.split(" ")[0];
 
   return (
-    <div className="px-5 pt-3 pb-2 border-t border-border bg-surface shrink-0">
+    <div className="border-t border-border bg-surface shrink-0">
+    <div className="px-5 pt-3 pb-2 max-w-3xl mx-auto">
 
       {/* Delegation hint */}
       {selectedDelegate && (
@@ -275,6 +276,7 @@ export function InputBar({ currentUser, members = [] }: InputBarProps) {
           </button>
         </div>
       </div>
+    </div>
     </div>
   );
 }

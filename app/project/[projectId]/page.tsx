@@ -973,11 +973,13 @@ export default function ProjectPage() {
 
           {/* Tab content */}
           <div className="flex-1 overflow-y-auto">
-            {activeTab === "catchup"       && <CatchUpTab />}
-            {activeTab === "conversations" && <ConversationsTab />}
-            {activeTab === "documents"     && <DocumentsTab />}
-            {activeTab === "members"       && <MembersTab />}
-            {activeTab === "activity"      && <ActivityTab />}
+            <div className="max-w-3xl mx-auto">
+              {activeTab === "catchup"       && <CatchUpTab />}
+              {activeTab === "conversations" && <ConversationsTab />}
+              {activeTab === "documents"     && <DocumentsTab />}
+              {activeTab === "members"       && <MembersTab />}
+              {activeTab === "activity"      && <ActivityTab />}
+            </div>
           </div>
         </main>
       </div>

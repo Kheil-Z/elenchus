@@ -166,7 +166,7 @@ interface MessageListProps {
 export function MessageList({ messages, currentUserName }: MessageListProps) {
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="flex flex-col gap-6 px-6 py-6">
+      <div className="flex flex-col gap-6 px-6 py-6 max-w-3xl mx-auto">
         {messages.map((msg) => (
           <MessageBubble key={msg.id} msg={msg} isYou={msg.authorName === currentUserName} />
         ))}
