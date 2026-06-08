@@ -341,7 +341,7 @@ export default function ProjectsPage() {
 
               {/* Projects I'm in */}
               <section>
-                <p className="text-sm font-semibold text-foreground mb-4">Projects I'm in</p>
+                <p className="text-sm font-semibold text-foreground mb-4">Projects I&apos;m in</p>
                 <div className="grid grid-cols-2 gap-4">
                   {JOINED_PROJECTS.map((p) => (
                     <ProjectCard key={p.id} project={p} />

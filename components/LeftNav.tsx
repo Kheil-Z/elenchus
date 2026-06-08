@@ -58,7 +58,7 @@ export function LeftNav({ activeProjectId }: { activeProjectId?: string }) {
       {/* Projects I'm in */}
       <div className="px-3 pt-4">
         <p className="text-[10px] font-semibold uppercase tracking-widest text-muted/50 px-2 mb-1.5">
-          Projects I'm in
+          Projects I&apos;m in
         </p>
         {JOINED_PROJECTS.map((p) => (
           <Link

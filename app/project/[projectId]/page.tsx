@@ -612,7 +612,7 @@ function CatchUpTab() {
           <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.2" />
           <path d="M6 3.5V6.5L8 8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-        You were last active <span className="font-medium text-foreground mx-0.5">{LAST_VISITED}</span> — here's what you missed.
+        You were last active <span className="font-medium text-foreground mx-0.5">{LAST_VISITED}</span> — here&apos;s what you missed.
       </div>
 
       {/* Mentions */}
