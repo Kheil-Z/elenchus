@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Instrument_Serif, DM_Sans, Cinzel } from "next/font/google";
+import { AuthProvider } from "@/lib/auth-context";
 import "./globals.css";
 
 const instrumentSerif = Instrument_Serif({
@@ -35,7 +36,9 @@ export default function RootLayout({
       lang="en"
       className={`${instrumentSerif.variable} ${dmSans.variable} ${cinzel.variable} h-full`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <AuthProvider>{children}</AuthProvider>
+      </body>
     </html>
   );
 }

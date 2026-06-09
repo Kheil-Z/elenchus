@@ -1,8 +1,11 @@
+"use client";
+
 import { ChatLayout } from "@/components/chat/ChatLayout";
 import { MessageList } from "@/components/chat/MessageList";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { InputBar } from "@/components/chat/InputBar";
 import { ChatFooter } from "@/components/chat/ChatFooter";
+import { useAuth } from "@/lib/auth-context";
 import type { ChatMessage, ChatMember, ChatDocument } from "@/lib/chat-types";
 import type { UserColor } from "@/lib/types";
 
@@ -106,6 +109,10 @@ const MESSAGES: ChatMessage[] = [
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ChatPage() {
+  const { profile, user } = useAuth();
+  const currentUserName = profile?.display_name ?? user?.email ?? "";
+  const currentUserColor = (profile?.color as UserColor) ?? "blue";
+
   return (
     <ChatLayout
       title="Onboarding Flow Redesign"
@@ -116,12 +123,12 @@ export default function ChatPage() {
           projectName="Product Redesign"
           members={MEMBERS}
           documents={DOCUMENTS}
-          currentUserName="Alex Kim"
+          currentUserName={currentUserName}
         />
       }
     >
-      <MessageList messages={MESSAGES} currentUserName="Alex Kim" />
-      <InputBar currentUser={{ name: "Alex Kim", color: "blue" }} members={MEMBERS} />
+      <MessageList messages={MESSAGES} currentUserName={currentUserName} />
+      <InputBar currentUser={{ name: currentUserName, color: currentUserColor }} members={MEMBERS} />
       <ChatFooter tokenCount={2653} model="claude-sonnet-4-6" apiKeySet={true} />
     </ChatLayout>
   );

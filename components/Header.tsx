@@ -21,12 +21,12 @@ export function Header() {
       </nav>
 
       <div className="ml-auto flex items-center gap-3">
-        <button className="text-sm text-muted hover:text-foreground transition-colors px-3 py-1.5">
+        <Link href="/auth/login" className="text-sm text-muted hover:text-foreground transition-colors px-3 py-1.5">
           Sign in
-        </button>
-        <button className="text-sm font-medium bg-foreground text-surface px-4 py-1.5 rounded-lg hover:opacity-90 transition-opacity">
+        </Link>
+        <Link href="/auth/signup" className="text-sm font-medium bg-foreground text-surface px-4 py-1.5 rounded-lg hover:opacity-90 transition-opacity">
           Get started
-        </button>
+        </Link>
       </div>
     </header>
   );

@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Avatar } from "@/components/Avatar";
 import { LeftNav } from "@/components/LeftNav";
+import { useAuth } from "@/lib/auth-context";
 import type { UserColor } from "@/lib/types";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -69,8 +70,6 @@ const PROJECT = {
   emoji: "🎨",
   description: "Onboarding flow and navigation redesign for Q3 launch.",
 };
-
-const CURRENT_USER = "Alex Kim";
 
 const MEMBERS: Member[] = [
   { name: "Alex Kim",   color: "blue",   role: "Can edit", online: true,  tokenPct: 44 },
@@ -264,13 +263,13 @@ function ActivityIcon({ type }: { type: ActivityItem["type"] }) {
 
 // ── Conversations tab ─────────────────────────────────────────────────────────
 
-function ConversationsTab() {
+function ConversationsTab({ currentUser }: { currentUser: string }) {
   const totalMessages = CONVERSATIONS.reduce((s, c) => s + c.messageCount, 0);
   const [draft, setDraft] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [invited, setInvited] = useState<Member[]>([]);
 
-  const others = MEMBERS.filter((m) => m.name !== CURRENT_USER);
+  const others = MEMBERS.filter((m) => m.name !== currentUser);
 
   function toggleMember(m: Member) {
     setInvited((prev) =>
@@ -409,7 +408,7 @@ function ConversationsTab() {
                 {c.name}
               </p>
               <p className="text-[11px] text-muted mt-0.5 truncate">
-                {c.participants.map((p) => (p.name === CURRENT_USER ? "You" : firstName(p.name))).join(", ")}
+                {c.participants.map((p) => (p.name === currentUser ? "You" : firstName(p.name))).join(", ")}
                 <span className="mx-1.5 text-border">·</span>
                 {c.messageCount} messages
               </p>
@@ -419,7 +418,7 @@ function ConversationsTab() {
             <div className="flex-1 min-w-0">
               <p className="text-[11px] text-muted/60 truncate">
                 <span className="font-medium text-muted">
-                  {c.lastMessage.author === CURRENT_USER ? "You" : firstName(c.lastMessage.author)}:
+                  {c.lastMessage.author === currentUser ? "You" : firstName(c.lastMessage.author)}:
                 </span>
                 {" "}{c.lastMessage.text}
               </p>
@@ -449,7 +448,7 @@ function ConversationsTab() {
 
 // ── Documents tab ─────────────────────────────────────────────────────────────
 
-function DocumentsTab() {
+function DocumentsTab({ currentUser }: { currentUser: string }) {
   return (
     <div className="p-6 flex flex-col gap-4">
       <div className="flex items-center justify-between">
@@ -477,7 +476,7 @@ function DocumentsTab() {
               <div className="flex items-center gap-1.5 mt-0.5">
                 <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: solidColor[doc.uploaderColor] }} />
                 <span className="text-[11px] text-muted">
-                  {doc.uploader === CURRENT_USER ? "You" : doc.uploader}
+                  {doc.uploader === currentUser ? "You" : doc.uploader}
                 </span>
               </div>
             </div>
@@ -495,7 +494,7 @@ function DocumentsTab() {
 
 // ── Members tab ───────────────────────────────────────────────────────────────
 
-function MembersTab() {
+function MembersTab({ currentUser }: { currentUser: string }) {
   const [addingMember, setAddingMember] = useState(false);
   const [inviteValue, setInviteValue] = useState("");
 
@@ -551,7 +550,7 @@ function MembersTab() {
               <div className="flex items-center gap-2 mb-1">
                 <p className="text-sm font-medium text-foreground">
                   {m.name}
-                  {m.name === CURRENT_USER && (
+                  {m.name === currentUser && (
                     <span className="font-normal text-muted ml-1.5 text-xs">— You</span>
                   )}
                 </p>
@@ -602,7 +601,7 @@ function MembersTab() {
 
 // ── Catch up tab ──────────────────────────────────────────────────────────────
 
-function CatchUpTab() {
+function CatchUpTab({ currentUser }: { currentUser: string }) {
   return (
     <div className="flex flex-col gap-8 p-6">
 
@@ -716,7 +715,7 @@ function CatchUpTab() {
 
 // ── Activity tab ──────────────────────────────────────────────────────────────
 
-function ActivityTab() {
+function ActivityTab({ currentUser }: { currentUser: string }) {
   return (
     <div className="p-6">
       <div className="relative flex flex-col gap-px">
@@ -729,7 +728,7 @@ function ActivityTab() {
             <div className="flex-1 min-w-0 pt-0.5">
               <p className="text-sm text-foreground leading-snug">
                 <span className="font-medium">
-                  {item.user === CURRENT_USER ? "You" : item.user}
+                  {item.user === currentUser ? "You" : item.user}
                 </span>
                 {" "}
                 <span className="text-muted">{item.action}</span>
@@ -758,6 +757,8 @@ const TABS: { id: Tab; label: string; badge?: number }[] = [
 ];
 
 export default function ProjectPage() {
+  const { profile, user } = useAuth();
+  const currentUser = profile?.display_name ?? user?.email ?? "";
   const [activeTab, setActiveTab] = useState<Tab>("conversations");
   const [navOpen, setNavOpen] = useState(true);
   const [projectName, setProjectName] = useState(PROJECT.name);
@@ -816,6 +817,13 @@ export default function ProjectPage() {
           </svg>
           New conversation
         </button>
+
+        {/* User avatar — decorative, shows current identity */}
+        {currentUser && (
+          <div className="shrink-0">
+            <Avatar name={currentUser} color={(profile?.color as UserColor) ?? "blue"} size="sm" />
+          </div>
+        )}
       </header>
 
       {/* Body */}
@@ -895,7 +903,7 @@ export default function ProjectPage() {
                   </div>
                   <div className="min-w-0">
                     <p className="text-xs font-medium text-foreground truncate">
-                      {m.name === CURRENT_USER ? (
+                      {m.name === currentUser ? (
                         <>
                           {m.name}
                           <span className="font-normal text-muted ml-1">— You</span>
@@ -928,7 +936,7 @@ export default function ProjectPage() {
                     <div className="flex items-center gap-1 mt-0.5">
                       <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: solidColor[doc.uploaderColor] }} />
                       <span className="text-[10px] text-muted">
-                        {doc.uploader === CURRENT_USER ? "You" : doc.uploader}
+                        {doc.uploader === currentUser ? "You" : doc.uploader}
                       </span>
                     </div>
                   </div>
@@ -974,11 +982,11 @@ export default function ProjectPage() {
           {/* Tab content */}
           <div className="flex-1 overflow-y-auto">
             <div className="max-w-3xl mx-auto">
-              {activeTab === "catchup"       && <CatchUpTab />}
-              {activeTab === "conversations" && <ConversationsTab />}
-              {activeTab === "documents"     && <DocumentsTab />}
-              {activeTab === "members"       && <MembersTab />}
-              {activeTab === "activity"      && <ActivityTab />}
+              {activeTab === "catchup"       && <CatchUpTab       currentUser={currentUser} />}
+              {activeTab === "conversations" && <ConversationsTab currentUser={currentUser} />}
+              {activeTab === "documents"     && <DocumentsTab     currentUser={currentUser} />}
+              {activeTab === "members"       && <MembersTab       currentUser={currentUser} />}
+              {activeTab === "activity"      && <ActivityTab      currentUser={currentUser} />}
             </div>
           </div>
         </main>

@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { LeftNav } from "@/components/LeftNav";
 import { Avatar } from "@/components/Avatar";
+import { useAuth } from "@/lib/auth-context";
 import type { UserColor } from "@/lib/types";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -265,7 +267,18 @@ function Stat({ label, value }: { label: string; value: number }) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ProjectsPage() {
+  const { profile, user, logout } = useAuth();
+  const router = useRouter();
   const [navOpen, setNavOpen] = useState(true);
+
+  const displayName = profile?.display_name ?? user?.email ?? "";
+  const displayEmail = user?.email ?? "";
+  const displayColor = (profile?.color as UserColor) ?? "blue";
+
+  async function handleLogout() {
+    await logout();
+    router.replace("/auth/login");
+  }
 
   const totalChats =
     [...MY_PROJECTS, ...JOINED_PROJECTS].reduce((s, p) => s + p.chatCount, 0);
@@ -374,10 +387,10 @@ export default function ProjectsPage() {
           <div className="flex-1 px-4 py-5 flex flex-col gap-4 overflow-y-auto">
             {/* Profile */}
             <div className="flex items-center gap-3">
-              <Avatar name={CURRENT_USER.name} color={CURRENT_USER.color} size="md" showOnline />
+              <Avatar name={displayName} color={displayColor} size="md" showOnline />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground truncate">{CURRENT_USER.name}</p>
-                <p className="text-xs text-muted truncate">{CURRENT_USER.email}</p>
+                <p className="text-sm font-medium text-foreground truncate">{displayName}</p>
+                <p className="text-xs text-muted truncate">{displayEmail}</p>
               </div>
             </div>
 
@@ -405,19 +418,11 @@ export default function ProjectsPage() {
             </div>
           </div>
 
-          {/* Footer: settings + sign out */}
+          {/* Footer: sign out */}
           <div className="px-3 py-3 border-t border-border flex flex-col gap-0.5">
             <SidebarButton
-              label="Settings"
-              icon={
-                <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                  <circle cx="6.5" cy="6.5" r="2" stroke="currentColor" strokeWidth="1.1" />
-                  <path d="M11.2 8.8a1 1 0 0 0 .2 1.1l.03.03a1.1 1.1 0 0 1-1.56 1.56l-.03-.04A1 1 0 0 0 8.7 11.2a1 1 0 0 0-.5.87V12.3a1.1 1.1 0 0 1-2.2 0v-.05a1 1 0 0 0-.65-.92 1 1 0 0 0-1.1.2l-.04.04a1.1 1.1 0 0 1-1.56-1.56l.04-.04A1 1 0 0 0 2.9 8.8a1 1 0 0 0-.87-.5H1.8a1.1 1.1 0 0 1 0-2.2h.06a1 1 0 0 0 .91-.65 1 1 0 0 0-.2-1.1l-.04-.04A1.1 1.1 0 0 1 4.09 2.75l.04.04A1 1 0 0 0 5.2 3a1 1 0 0 0 .5-.87V1.8a1.1 1.1 0 0 1 2.2 0v.06a1 1 0 0 0 .6.91 1 1 0 0 0 1.1-.2l.04-.04a1.1 1.1 0 0 1 1.56 1.56l-.04.04A1 1 0 0 0 10.95 5.2v.05a1 1 0 0 0 .87.5h.18a1.1 1.1 0 0 1 0 2.2h-.06a1 1 0 0 0-.74.85Z" stroke="currentColor" strokeWidth="1.1" />
-                </svg>
-              }
-            />
-            <SidebarButton
               label="Sign out"
+              onClick={handleLogout}
               icon={
                 <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
                   <path d="M5 2H2.5A1.5 1.5 0 0 0 1 3.5v6A1.5 1.5 0 0 0 2.5 11H5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
@@ -447,9 +452,9 @@ function UsageLine({ label, value, pct }: { label: string; value: string; pct: n
   );
 }
 
-function SidebarButton({ label, icon }: { label: string; icon: React.ReactNode }) {
+function SidebarButton({ label, icon, onClick }: { label: string; icon: React.ReactNode; onClick?: () => void }) {
   return (
-    <button className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-muted hover:text-foreground hover:bg-background transition-colors w-full text-left">
+    <button onClick={onClick} className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-muted hover:text-foreground hover:bg-background transition-colors w-full text-left">
       {icon}
       {label}
     </button>

@@ -209,3 +209,24 @@ create policy "messages: readable by project members"
         and pm.user_id    = auth.uid()
     )
   );
+
+
+-- =============================================================================
+-- Role grants
+-- RLS policies restrict which rows are visible, but grants must exist first.
+-- The Supabase table editor adds these automatically; raw SQL does not.
+-- =============================================================================
+
+grant select, insert, update on public.users                to authenticated;
+grant select, insert, update on public.projects             to authenticated;
+grant select, insert, update on public.project_members      to authenticated;
+grant select, insert, update on public.conversations        to authenticated;
+grant select, insert, update on public.conversation_members to authenticated;
+grant select, insert, update on public.messages             to authenticated;
+
+grant all on public.users                to service_role;
+grant all on public.projects             to service_role;
+grant all on public.project_members      to service_role;
+grant all on public.conversations        to service_role;
+grant all on public.conversation_members to service_role;
+grant all on public.messages             to service_role;
