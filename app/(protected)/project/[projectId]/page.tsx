@@ -107,15 +107,32 @@ async function getToken(): Promise<string | null> {
 
 function ConversationRow({
   conversation,
+  canDelete,
   onRenamed,
+  onDeleted,
 }: {
   conversation: Conversation;
+  canDelete: boolean;
   onRenamed: (id: string, newName: string) => void;
+  onDeleted: (id: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(conversation.name);
   const [saving, setSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!confirmDelete) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
+        setConfirmDelete(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [confirmDelete]);
 
   function startEdit(e: React.MouseEvent) {
     e.preventDefault();
@@ -143,6 +160,22 @@ function ConversationRow({
     }
     setSaving(false);
     setEditing(false);
+  }
+
+  async function handleDelete(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setConfirmDelete(false);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    try {
+      const res = await fetch(`/api/conversations/${conversation.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const json = await res.json();
+      if (json.success) onDeleted(conversation.id);
+    } catch { /* best-effort */ }
   }
 
   if (editing) {
@@ -185,6 +218,7 @@ function ConversationRow({
           </svg>
         </div>
       </Link>
+
       <button
         onClick={startEdit}
         title="Rename"
@@ -194,6 +228,47 @@ function ConversationRow({
           <path d="M7.5 1.5l2 2L3 10H1V8L7.5 1.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
         </svg>
       </button>
+
+      {canDelete && (
+        <div className="relative shrink-0">
+          <button
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDelete((o) => !o); }}
+            title="Delete"
+            className="w-6 h-6 rounded-md flex items-center justify-center text-muted hover:text-red-600 hover:bg-red-50 transition-colors opacity-0 group-hover/row:opacity-100"
+          >
+            <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+              <path d="M2 3h8M4 3V2h4v1M5 5.5v3M7 5.5v3M3 3l.5 7h5L9 3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+
+          {confirmDelete && (
+            <div
+              ref={popupRef}
+              onClick={(e) => e.stopPropagation()}
+              className="absolute right-0 bottom-full mb-2 w-56 bg-surface border border-red-200 rounded-xl shadow-lg p-3 z-20"
+            >
+              <p className="text-xs font-semibold text-red-600 mb-0.5">Delete conversation?</p>
+              <p className="text-[11px] text-muted mb-3 leading-snug">
+                This permanently deletes all messages. It cannot be undone.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDelete(false); }}
+                  className="flex-1 text-xs text-muted border border-border rounded-lg py-1.5 hover:bg-background transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className="flex-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg py-1.5 transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -206,16 +281,20 @@ function ConversationsTab({
   currentUserId,
   conversations,
   members,
+  canDelete,
   onConversationCreated,
   onConversationRenamed,
+  onConversationDeleted,
 }: {
   projectId: string;
   currentUser: string;
   currentUserId: string;
   conversations: Conversation[];
   members: Member[];
+  canDelete: boolean;
   onConversationCreated: (conv: Conversation) => void;
   onConversationRenamed: (id: string, newName: string) => void;
+  onConversationDeleted: (id: string) => void;
 }) {
   const router = useRouter();
   const [draft, setDraft] = useState("");
@@ -233,32 +312,43 @@ function ConversationsTab({
   }
 
   async function handleCreate() {
-    if (!draft.trim() || creating) return;
+    const message = draft.trim();
+    if (!message || creating) return;
     setCreating(true);
     const token = await getToken();
     if (!token) { setCreating(false); return; }
 
+    // Derive a short name from the first 5 words
+    const words = message.split(/\s+/);
+    const name = words.length > 5 ? words.slice(0, 5).join(" ") + "…" : message;
+
     try {
-      const res = await fetch("/api/conversations/create", {
+      const createRes = await fetch("/api/conversations/create", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          projectId,
-          name: draft.trim(),
-          memberIds: invited.map((m) => m.id),
-        }),
+        body: JSON.stringify({ projectId, name, memberIds: invited.map((m) => m.id) }),
       });
-      const json = await res.json();
-      if (json.success) {
-        const conv: Conversation = {
-          id: json.conversation.id,
-          name: json.conversation.name,
-          lastActive: formatRelative(json.conversation.created_at),
-          messageCount: 0,
-        };
-        onConversationCreated(conv);
-        router.push(`/chat/${json.conversation.id}`);
-      }
+      const createJson = await createRes.json();
+      if (!createJson.success) { setCreating(false); return; }
+
+      const conversationId = createJson.conversation.id;
+
+      // Send the initial message before navigating
+      await fetch("/api/messages/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ conversationId, content: message, authorDisplayName: currentUser }),
+      });
+
+      const conv: Conversation = {
+        id: conversationId,
+        name,
+        lastActive: formatRelative(createJson.conversation.created_at),
+        messageCount: 1,
+        participants: [],
+      };
+      onConversationCreated(conv);
+      router.push(`/chat/${conversationId}`);
     } catch { /* network error */ }
     setCreating(false);
   }
@@ -359,7 +449,9 @@ function ConversationsTab({
             <ConversationRow
               key={c.id}
               conversation={c}
+              canDelete={canDelete}
               onRenamed={onConversationRenamed}
+              onDeleted={onConversationDeleted}
             />
           ))}
         </div>
@@ -640,6 +732,7 @@ const ACTION_LABELS: Record<string, string> = {
   renamed_project:       "renamed this project to",
   created_conversation:  "started a conversation",
   renamed_conversation:  "renamed a conversation to",
+  deleted_conversation:  "deleted a conversation",
   invited_member:        "invited",
   removed_member:        "removed",
   left_project:          "left this project",
@@ -1236,9 +1329,13 @@ export default function ProjectPage() {
                     currentUserId={currentUserId}
                     conversations={realConversations}
                     members={realMembers}
+                    canDelete={realMembers.find((m) => m.id === currentUserId)?.role === "Can edit"}
                     onConversationCreated={(conv) => setRealConversations((prev) => [conv, ...prev])}
                     onConversationRenamed={(id, newName) =>
                       setRealConversations((prev) => prev.map((c) => c.id === id ? { ...c, name: newName } : c))
+                    }
+                    onConversationDeleted={(id) =>
+                      setRealConversations((prev) => prev.filter((c) => c.id !== id))
                     }
                   />
                 )}

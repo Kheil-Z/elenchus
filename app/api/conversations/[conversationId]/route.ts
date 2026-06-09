@@ -72,3 +72,51 @@ export async function PUT(
 
   return NextResponse.json({ success: true, conversation: data });
 }
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ conversationId: string }> }
+) {
+  const user = await authenticate(req);
+  if (!user) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+
+  const { conversationId } = await params;
+
+  const { data: convData } = await supabaseAdmin
+    .from("conversations")
+    .select("project_id, name")
+    .eq("id", conversationId)
+    .single();
+
+  const conv = convData as unknown as { project_id: string; name: string } | null;
+  if (!conv) return NextResponse.json({ success: false, error: "Conversation not found" }, { status: 404 });
+
+  const { data: memberCheck } = await supabaseAdmin
+    .from("project_members")
+    .select("role")
+    .eq("project_id", conv.project_id)
+    .eq("user_id", user.id)
+    .single();
+
+  const member = memberCheck as unknown as { role: string } | null;
+  if (!member) return NextResponse.json({ success: false, error: "Not a project member" }, { status: 403 });
+  if (member.role !== "can_edit") return NextResponse.json({ success: false, error: "Only editors can delete conversations" }, { status: 403 });
+
+  const { error } = await supabaseAdmin
+    .from("conversations")
+    .delete()
+    .eq("id", conversationId);
+
+  if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+
+  await supabaseAdmin.from("activity_log").insert({
+    project_id: conv.project_id,
+    user_id: user.id,
+    action: "deleted_conversation",
+    target_type: "conversation",
+    target_name: conv.name,
+    target_id: conversationId,
+  } as never);
+
+  return NextResponse.json({ success: true });
+}
