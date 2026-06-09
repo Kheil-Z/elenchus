@@ -1,3 +1,6 @@
+"use client";
+
+import { useRef, useEffect } from "react";
 import type { ChatMessage, ContentSegment } from "@/lib/chat-types";
 import type { UserColor } from "@/lib/types";
 import { Avatar } from "@/components/Avatar";
@@ -161,15 +164,53 @@ function MessageBubble({ msg, isYou }: { msg: ChatMessage; isYou: boolean }) {
 interface MessageListProps {
   messages: ChatMessage[];
   currentUserName?: string;
+  loading?: boolean;
+  sending?: boolean;
 }
 
-export function MessageList({ messages, currentUserName }: MessageListProps) {
+export function MessageList({ messages, currentUserName, loading, sending }: MessageListProps) {
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages.length, sending]);
+
+  if (loading) {
+    return (
+      <div className="flex-1 overflow-y-auto flex items-center justify-center">
+        <p className="text-sm text-muted">Loading…</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="flex flex-col gap-6 px-6 py-6 max-w-3xl mx-auto">
         {messages.map((msg) => (
           <MessageBubble key={msg.id} msg={msg} isYou={msg.authorName === currentUserName} />
         ))}
+        {sending && (
+          <div className="flex flex-row-reverse gap-3">
+            <div
+              className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-semibold select-none"
+              style={{ backgroundColor: "#E8E5E0", color: "#6b6b6b" }}
+            >
+              Cl
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-row-reverse items-baseline gap-2 mb-2">
+                <span className="text-[13px] font-semibold text-foreground">Claude</span>
+              </div>
+              <div
+                className="rounded-2xl rounded-tr-sm px-4 py-3 text-sm text-muted w-fit"
+                style={{ backgroundColor: "#F1F0EE", border: "1px solid #E2E0DC" }}
+              >
+                <span className="animate-pulse">Thinking…</span>
+              </div>
+            </div>
+          </div>
+        )}
+        <div ref={bottomRef} />
       </div>
     </div>
   );

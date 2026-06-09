@@ -21,9 +21,11 @@ interface InputBarProps {
   currentUser: { name: string; color: UserColor };
   members?: Member[];
   apiKeyStatus?: "active" | "not_set" | "error";
+  onSend?: (msg: string) => Promise<void>;
+  sending?: boolean;
 }
 
-export function InputBar({ currentUser, members = [], apiKeyStatus }: InputBarProps) {
+export function InputBar({ currentUser, members = [], apiKeyStatus, onSend, sending }: InputBarProps) {
   const [value, setValue] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [delegateOpen, setDelegateOpen] = useState(false);
@@ -43,14 +45,16 @@ export function InputBar({ currentUser, members = [], apiKeyStatus }: InputBarPr
     el.style.height = Math.min(el.scrollHeight, 180) + "px";
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+  async function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (!canSend) return;
+      if (!canSend || sending) return;
+      const msg = value.trim();
       setValue("");
       setAttachedFiles([]);
       setSelectedDelegate(null);
       if (textareaRef.current) textareaRef.current.style.height = "auto";
+      if (onSend && msg) await onSend(msg);
     }
   }
 
@@ -157,9 +161,10 @@ export function InputBar({ currentUser, members = [], apiKeyStatus }: InputBarPr
             value={value}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
+            disabled={sending}
             placeholder={`Message as ${firstName(currentUser.name)}…`}
             rows={1}
-            className="flex-1 bg-transparent resize-none text-sm text-foreground placeholder:text-muted/40 focus:outline-none leading-relaxed"
+            className="flex-1 bg-transparent resize-none text-sm text-foreground placeholder:text-muted/40 focus:outline-none leading-relaxed disabled:opacity-50"
             style={{ minHeight: "22px", maxHeight: "180px" }}
           />
 
@@ -186,12 +191,26 @@ export function InputBar({ currentUser, members = [], apiKeyStatus }: InputBarPr
           <div className="relative flex items-stretch shrink-0 mb-0.5">
             {/* Main send */}
             <button
-              disabled={!canSend}
+              disabled={!canSend || sending}
+              onClick={async () => {
+                if (!canSend || sending) return;
+                const msg = value.trim();
+                setValue("");
+                setAttachedFiles([]);
+                setSelectedDelegate(null);
+                if (textareaRef.current) textareaRef.current.style.height = "auto";
+                if (onSend && msg) await onSend(msg);
+              }}
               className="w-7 h-8 rounded-l-lg flex items-center justify-center transition-all disabled:opacity-30"
               style={{ backgroundColor: sendColor[currentUser.color] }}
               aria-label="Send"
             >
-              {selectedDelegate ? (
+              {sending ? (
+                <svg className="animate-spin" width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <circle cx="6" cy="6" r="4" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5" />
+                  <path d="M6 2a4 4 0 0 1 4 4" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              ) : selectedDelegate ? (
                 <Avatar name={selectedDelegate.name} color={selectedDelegate.color} size="xs" />
               ) : (
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none">

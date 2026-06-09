@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useParams } from "next/navigation";
 import { ChatLayout } from "@/components/chat/ChatLayout";
 import { MessageList } from "@/components/chat/MessageList";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
@@ -8,134 +9,180 @@ import { InputBar } from "@/components/chat/InputBar";
 import { ChatFooter } from "@/components/chat/ChatFooter";
 import { useAuth } from "@/lib/auth-context";
 import { getApiKeyStatus } from "@/lib/api-key";
+import { getConversation, getMessages, getProject, getProjectMembers, subscribeToMessages } from "@/lib/db";
+import { supabase } from "@/lib/supabase";
 import type { ApiKeyStatus } from "@/lib/api-key";
-import type { ChatMessage, ChatMember, ChatDocument } from "@/lib/chat-types";
+import type { ChatMessage, ChatMember } from "@/lib/chat-types";
 import type { UserColor } from "@/lib/types";
+import type { Message, Conversation, Project } from "@/lib/types/database";
+import type { ProjectMemberWithUser } from "@/lib/db";
 
-// ── Mock data (replace with Supabase fetch keyed on conversationId) ───────────
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
 
-const MEMBERS: ChatMember[] = [
-  { name: "Alex Kim",   color: "blue",   online: true,  tokenPct: 48 },
-  { name: "Ben Clarke", color: "green",  online: false, tokenPct: 31 },
-  { name: "Clara Ng",   color: "purple", online: true,  tokenPct: 21 },
-];
-
-const DOCUMENTS: ChatDocument[] = [
-  { filename: "design-brief-v3.pdf",     uploader: "Alex",  uploaderColor: "blue"   },
-  { filename: "user-interviews.md",      uploader: "Clara", uploaderColor: "purple" },
-  { filename: "competitor-matrix.xlsx",  uploader: "Ben",   uploaderColor: "green"  },
-];
-
-const MESSAGES: ChatMessage[] = [
-  {
-    id: "1",
-    role: "user",
-    authorName: "Alex Kim",
-    authorColor: "blue" as UserColor,
-    timestamp: "10:42",
-    segments: [
-      {
-        type: "text",
-        text: "I've uploaded the latest design brief. Can we kick off by mapping the current onboarding flow? I think we need to nail down where users are dropping off before we redesign anything.",
-      },
-    ],
-  },
-  {
-    id: "2",
-    role: "user",
-    authorName: "Ben Clarke",
-    authorColor: "green" as UserColor,
-    timestamp: "10:44",
-    segments: [
-      {
-        type: "text",
-        text: "Good timing — @Clara, does your interview data back this up? I've been going through the competitor research. Notion and Linear both push team invite early in onboarding. ",
-      },
-      { type: "doc", filename: "competitor-matrix.xlsx", uploader: "Ben" },
-      {
-        type: "text",
-        text: " suggests they optimise for collaborative activation rather than solo setup.",
-      },
-    ],
-  },
-  {
-    id: "3",
-    role: "user",
-    authorName: "Clara Ng",
-    authorColor: "purple" as UserColor,
-    timestamp: "10:46",
-    segments: [
-      {
-        type: "text",
-        text: "The interviews confirm it. Biggest drop-off is at step 3 — users get confused by the 'workspace' concept before they've even sent a message. All the detail is in ",
-      },
-      { type: "doc", filename: "user-interviews.md", uploader: "Clara" },
-      { type: "text", text: "." },
-    ],
-  },
-  {
-    id: "4",
-    role: "user",
-    authorName: "Alex Kim",
-    authorColor: "blue" as UserColor,
-    timestamp: "10:48",
-    segments: [
-      {
-        type: "text",
-        text: "@claude — based on the brief, Ben's competitor analysis, and Clara's interviews, can you map out a revised onboarding flow we could ship this sprint?",
-      },
-    ],
-  },
-  {
-    id: "5",
-    role: "assistant",
-    authorName: "Claude",
-    timestamp: "10:48",
-    modelUsed: "claude-sonnet-4-6",
-    inputTokens: 2341,
-    outputTokens: 312,
-    segments: [
-      { type: "text", text: "Here's a revised 4-step flow based on " },
-      { type: "doc", filename: "design-brief-v3.pdf",    uploader: "Alex"  },
-      { type: "text", text: ", "                                            },
-      { type: "doc", filename: "competitor-matrix.xlsx", uploader: "Ben"   },
-      { type: "text", text: ", and "                                        },
-      { type: "doc", filename: "user-interviews.md",     uploader: "Clara" },
-      {
-        type: "text",
-        text: ":\n\n**Step 1 — Send first.** Remove the workspace creation gate entirely. Let users type their first message immediately; create the project container silently in the background.\n\n**Step 2 — Name it later.** After the first message is sent, surface a single prompt: 'What is this project about?' One field, low friction, high context.\n\n**Step 3 — Invite your team.** Now introduce collaboration. Users have something to show; the invite feels purposeful rather than premature.\n\n**Step 4 — Configure together.** Model settings, system prompt, and preferences move here — after the product has been experienced.\n\n@Alex, this directly addresses the step-3 drop-off @Clara flagged. @Ben, it also matches the collaborative activation pattern both Notion and Linear use.",
-      },
-    ],
-  },
-];
-
-// ── Page ──────────────────────────────────────────────────────────────────────
+function dbMsgToChat(msg: Message, colorMap: Map<string, UserColor>): ChatMessage {
+  return {
+    id: msg.id,
+    role: msg.role,
+    authorName: msg.role === "assistant" ? "Claude" : msg.author_display_name,
+    authorColor: msg.author_user_id ? (colorMap.get(msg.author_user_id) ?? "blue") : undefined,
+    timestamp: formatTime(msg.created_at),
+    segments: [{ type: "text", text: msg.content }],
+    modelUsed: msg.model_used ?? undefined,
+    inputTokens: msg.input_tokens > 0 ? msg.input_tokens : undefined,
+    outputTokens: msg.output_tokens > 0 ? msg.output_tokens : undefined,
+  };
+}
 
 export default function ChatPage() {
+  const params = useParams<{ conversationId: string }>();
+  const conversationId = params.conversationId;
   const { profile, user } = useAuth();
   const currentUserName = profile?.display_name ?? user?.email ?? "";
   const currentUserColor = (profile?.color as UserColor) ?? "blue";
+
+  const [conversation, setConversation] = useState<Conversation | null>(null);
+  const [project, setProject] = useState<Project | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chatMembers, setChatMembers] = useState<ChatMember[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [awaitingClaude, setAwaitingClaude] = useState(false);
   const [apiKeyStatus, setApiKeyStatus] = useState<ApiKeyStatus | "loading">("loading");
+  const colorMapRef = useRef<Map<string, UserColor>>(new Map());
 
   useEffect(() => { getApiKeyStatus().then(setApiKeyStatus); }, []);
 
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+
+    async function load() {
+      const convResult = await getConversation(conversationId, user!.id);
+      if (cancelled || convResult.error || !convResult.data) { setLoading(false); return; }
+      const conv = convResult.data;
+      if (!cancelled) setConversation(conv);
+
+      const [projResult, membersResult, msgResult] = await Promise.all([
+        getProject(conv.project_id, user!.id),
+        getProjectMembers(conv.project_id, user!.id),
+        getMessages(conversationId, user!.id),
+      ]);
+
+      if (cancelled) return;
+
+      if (projResult.data) setProject(projResult.data);
+
+      if (membersResult.data) {
+        const colorMap = new Map<string, UserColor>();
+        membersResult.data.forEach((m) => {
+          colorMap.set(m.user_id, (m.user.color as UserColor) ?? "blue");
+        });
+        colorMapRef.current = colorMap;
+        setChatMembers(membersResult.data.map((m) => ({
+          name: m.user.display_name,
+          color: (m.user.color as UserColor) ?? "blue",
+          online: false,
+          tokenPct: 0,
+        })));
+      }
+
+      if (msgResult.data) {
+        setMessages(msgResult.data.map((m) => dbMsgToChat(m, colorMapRef.current)));
+      }
+
+      setLoading(false);
+    }
+
+    load();
+    return () => { cancelled = true; };
+  }, [conversationId, user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const channel = subscribeToMessages(conversationId, (newMsg) => {
+      const mapped = dbMsgToChat(newMsg, colorMapRef.current);
+      setMessages((prev) => prev.some((m) => m.id === newMsg.id) ? prev : [...prev, mapped]);
+      if (newMsg.role === "assistant") setAwaitingClaude(false);
+    });
+    return () => { supabase.removeChannel(channel); };
+  }, [conversationId, user]);
+
+  async function handleSend(content: string) {
+    if (!user || !profile) return;
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    const isClaudeCall = content.includes("@claude");
+    setSending(true);
+    if (isClaudeCall) setAwaitingClaude(true);
+
+    const url = isClaudeCall ? "/api/claude" : "/api/messages/send";
+    const body = isClaudeCall
+      ? { conversationId, content }
+      : { conversationId, content, authorDisplayName: profile.display_name };
+
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.error("Send failed:", err);
+        setAwaitingClaude(false);
+      }
+    } catch (err) {
+      console.error("Send error:", err);
+      setAwaitingClaude(false);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const tokenCount = messages.reduce((sum, m) => {
+    const chars = m.segments.reduce((s, seg) => s + (seg.type === "text" ? seg.text.length : 0), 0);
+    return sum + Math.ceil(chars / 4);
+  }, 0);
+
   return (
     <ChatLayout
-      title="Onboarding Flow Redesign"
-      projectName="Product Redesign"
-      projectId="test"
+      title={conversation?.name ?? "Loading…"}
+      projectName={project?.name ?? "Project"}
+      projectId={conversation?.project_id}
       sidebar={
         <ChatSidebar
-          projectName="Product Redesign"
-          members={MEMBERS}
-          documents={DOCUMENTS}
+          projectName={project?.name ?? "Project"}
+          members={chatMembers}
+          documents={[]}
           currentUserName={currentUserName}
         />
       }
     >
-      <MessageList messages={MESSAGES} currentUserName={currentUserName} />
-      <InputBar currentUser={{ name: currentUserName, color: currentUserColor }} members={MEMBERS} apiKeyStatus={apiKeyStatus === "loading" ? undefined : apiKeyStatus} />
-      <ChatFooter tokenCount={2653} model="claude-sonnet-4-6" apiKeySet={apiKeyStatus === "active"} />
+      <MessageList
+        messages={messages}
+        currentUserName={currentUserName}
+        loading={loading}
+        sending={awaitingClaude}
+      />
+      <InputBar
+        currentUser={{ name: currentUserName, color: currentUserColor }}
+        members={chatMembers}
+        apiKeyStatus={apiKeyStatus === "loading" ? undefined : apiKeyStatus}
+        onSend={handleSend}
+        sending={sending}
+      />
+      <ChatFooter
+        tokenCount={tokenCount}
+        model="claude-sonnet-4-6"
+        apiKeySet={apiKeyStatus === "active"}
+      />
     </ChatLayout>
   );
 }

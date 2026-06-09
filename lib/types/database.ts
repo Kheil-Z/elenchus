@@ -15,6 +15,7 @@ export interface Project {
   id: string;
   name: string;
   description: string | null;
+  emoji: string;
   created_by: string;
   created_at: string;
 }

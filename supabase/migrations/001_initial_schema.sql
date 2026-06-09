@@ -141,27 +141,33 @@ create policy "users: update own row"
 
 create policy "projects: members can read"
   on public.projects for select
-  using (
-    exists (
-      select 1 from public.project_members
-      where project_id = projects.id
-        and user_id     = auth.uid()
-    )
+  using (public.is_project_member(id));
+
+
+-- ─── helper: membership check (security definer avoids recursive RLS) ─────────
+
+create or replace function public.is_project_member(p_project_id uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.project_members
+    where project_id = p_project_id
+      and user_id    = auth.uid()
   );
+$$;
 
 
 -- ─── project_members ─────────────────────────────────────────────────────────
 -- Readable by anyone in the same project.
+-- Uses the security-definer helper to avoid a recursive RLS deadlock.
 
 create policy "project_members: readable within project"
   on public.project_members for select
-  using (
-    exists (
-      select 1 from public.project_members pm
-      where pm.project_id = project_members.project_id
-        and pm.user_id    = auth.uid()
-    )
-  );
+  using (public.is_project_member(project_id));
 
 
 -- ─── conversations ────────────────────────────────────────────────────────────
