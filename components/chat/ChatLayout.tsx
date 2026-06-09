@@ -10,9 +10,10 @@ interface ChatLayoutProps {
   projectId?: string;
   children: React.ReactNode;
   sidebar: React.ReactNode;
+  onRenameTitle?: (newName: string) => Promise<void>;
 }
 
-export function ChatLayout({ title, projectName, projectId, children, sidebar }: ChatLayoutProps) {
+export function ChatLayout({ title, projectName, projectId, children, sidebar, onRenameTitle }: ChatLayoutProps) {
   const [navOpen, setNavOpen] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -26,10 +27,12 @@ export function ChatLayout({ title, projectName, projectId, children, sidebar }:
         <ChatHeader
           title={title}
           projectName={projectName}
+          projectId={projectId}
           navOpen={navOpen}
           onToggleNav={() => setNavOpen((o) => !o)}
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((o) => !o)}
+          onRenameTitle={onRenameTitle}
         />
         <div className="flex flex-1 overflow-hidden">
           <main className="flex-1 flex flex-col overflow-hidden min-w-0">

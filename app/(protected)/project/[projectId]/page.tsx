@@ -1,20 +1,23 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { useParams } from "next/navigation";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Avatar } from "@/components/Avatar";
 import { LeftNav } from "@/components/LeftNav";
 import { useAuth } from "@/lib/auth-context";
-import { getProject, getConversations, getProjectMembers } from "@/lib/db";
+import { getProject, getConversations, getProjectMembers, getConversationMemberPreviews } from "@/lib/db";
+import { MemberAvatarStack } from "@/components/MemberAvatarStack";
+import type { MemberPreview } from "@/lib/db";
 import { supabase } from "@/lib/supabase";
 import type { UserColor } from "@/lib/types";
-import type { Project as DBProject, Conversation as DBConversation } from "@/lib/types/database";
+import type { Conversation as DBConversation } from "@/lib/types/database";
 import type { ProjectMemberWithUser } from "@/lib/db";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 interface Member {
+  id: string;
   name: string;
   color: UserColor;
   role: "Can edit" | "Can use";
@@ -25,78 +28,246 @@ interface Member {
 interface Conversation {
   id: string;
   name: string;
-  participants: { name: string; color: UserColor }[];
   lastActive: string;
   messageCount: number;
-  lastMessage: { author: string; text: string };
+  participants: MemberPreview[];
+}
+
+interface DocumentEntry {
+  id: string;
+  name: string;
+  size_bytes: number;
+  mime_type: string | null;
+  uploader_name: string;
+  created_at: string;
+}
+
+interface ActivityEntry {
+  id: string;
+  user_id: string | null;
+  user_name: string | null;
+  user_color: string | null;
+  action: string;
+  target_type: string | null;
+  target_name: string | null;
+  created_at: string;
+}
+
+interface Mention {
+  id: string;
+  content: string;
+  author_display_name: string;
+  conversation_id: string;
+  conversation_name: string;
+  created_at: string;
+}
+
+interface UnreadConversation {
+  id: string;
+  name: string;
+  new_count: number;
+  latest_at: string;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
+const EMOJI_OPTIONS = ["📁", "🗂️", "💼", "🚀", "💡", "🔬", "📝", "🎯", "⚡", "🌱", "🏗️", "🎨", "📊", "🔒", "🤝", "🧪"];
+
 const solidColor: Record<UserColor, string> = {
-  blue:   "#3B82F6",
-  green:  "#22C55E",
-  purple: "#A855F7",
-  coral:  "#F87171",
-  amber:  "#F59E0B",
+  blue: "#3B82F6", green: "#22C55E", purple: "#A855F7", coral: "#F87171", amber: "#F59E0B",
 };
 
-function firstName(name: string) {
-  return name.split(" ")[0];
+function firstName(name: string) { return name.split(" ")[0]; }
+
+function formatRelative(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 2) return "Just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
 }
 
-// ── Conversations tab ─────────────────────────────────────────────────────────
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
 
-function ConversationsTab({ currentUser, conversations, members }: {
-  currentUser: string;
-  conversations: Conversation[];
-  members: Member[];
+async function getToken(): Promise<string | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.access_token ?? null;
+}
+
+// ── Conversation row (with inline rename) ─────────────────────────────────────
+
+function ConversationRow({
+  conversation,
+  onRenamed,
+}: {
+  conversation: Conversation;
+  onRenamed: (id: string, newName: string) => void;
 }) {
-  const totalMessages = conversations.reduce((s, c) => s + c.messageCount, 0);
-  const [draft, setDraft] = useState("");
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [invited, setInvited] = useState<Member[]>([]);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(conversation.name);
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const others = members.filter((m) => m.name !== currentUser);
+  function startEdit(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDraft(conversation.name);
+    setEditing(true);
+    setTimeout(() => inputRef.current?.select(), 0);
+  }
 
-  function toggleMember(m: Member) {
-    setInvited((prev) =>
-      prev.some((p) => p.name === m.name)
-        ? prev.filter((p) => p.name !== m.name)
-        : [...prev, m]
+  async function saveEdit() {
+    const trimmed = draft.trim();
+    if (!trimmed || trimmed === conversation.name || saving) { setEditing(false); return; }
+    setSaving(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      try {
+        const res = await fetch(`/api/conversations/${conversation.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ name: trimmed }),
+        });
+        const json = await res.json();
+        if (json.success) onRenamed(conversation.id, trimmed);
+      } catch { /* best-effort */ }
+    }
+    setSaving(false);
+    setEditing(false);
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-2 px-4 py-3.5 rounded-xl border border-foreground/20 bg-surface">
+        <input
+          ref={inputRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") saveEdit();
+            if (e.key === "Escape") setEditing(false);
+          }}
+          onBlur={saveEdit}
+          disabled={saving}
+          maxLength={120}
+          className="flex-1 text-sm font-medium text-foreground bg-transparent focus:outline-none disabled:opacity-50"
+        />
+        <span className="text-[11px] text-muted shrink-0">{saving ? "Saving…" : "Enter to save"}</span>
+      </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-6 p-6">
-      {/* Overview strip */}
-      <div className="bg-surface border border-border rounded-xl p-4 flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-medium text-foreground">{totalMessages} messages total</p>
-          <p className="text-[11px] text-muted">{conversations.length} conversations</p>
-        </div>
-        {members.some((m) => m.tokenPct > 0) && (
-          <div>
-            <div className="flex h-1.5 rounded-full overflow-hidden mb-2">
-              {members.map((m) => (
-                <div
-                  key={m.name}
-                  style={{ width: `${m.tokenPct}%`, backgroundColor: solidColor[m.color] }}
-                />
-              ))}
-            </div>
-            <div className="flex gap-4">
-              {members.map((m) => (
-                <div key={m.name} className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: solidColor[m.color] }} />
-                  <span className="text-[11px] text-muted">
-                    {firstName(m.name)} <span className="font-medium text-foreground">{m.tokenPct}%</span>
-                  </span>
-                </div>
-              ))}
-            </div>
+    <div className="group/row flex items-center gap-2 px-4 py-3.5 rounded-xl border border-transparent hover:border-border hover:bg-surface transition-all">
+      <Link href={`/chat/${conversation.id}`} className="flex-1 min-w-0 flex items-center gap-4">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-foreground truncate">{conversation.name}</p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <p className="text-[11px] text-muted shrink-0">{conversation.messageCount} messages</p>
+            {conversation.participants.length > 0 && (
+              <MemberAvatarStack members={conversation.participants} max={4} size="xs" />
+            )}
           </div>
-        )}
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          <span className="text-[11px] text-muted shrink-0">{conversation.lastActive}</span>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-border group-hover/row:text-muted transition-colors shrink-0">
+            <path d="M5 10l4-3-4-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </div>
+      </Link>
+      <button
+        onClick={startEdit}
+        title="Rename"
+        className="w-6 h-6 rounded-md flex items-center justify-center text-muted hover:text-foreground hover:bg-background transition-colors opacity-0 group-hover/row:opacity-100 shrink-0"
+      >
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+          <path d="M7.5 1.5l2 2L3 10H1V8L7.5 1.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+// ── Conversations tab ─────────────────────────────────────────────────────────
+
+function ConversationsTab({
+  projectId,
+  currentUser,
+  currentUserId,
+  conversations,
+  members,
+  onConversationCreated,
+  onConversationRenamed,
+}: {
+  projectId: string;
+  currentUser: string;
+  currentUserId: string;
+  conversations: Conversation[];
+  members: Member[];
+  onConversationCreated: (conv: Conversation) => void;
+  onConversationRenamed: (id: string, newName: string) => void;
+}) {
+  const router = useRouter();
+  const [draft, setDraft] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [invited, setInvited] = useState<Member[]>([]);
+  const [creating, setCreating] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const others = members.filter((m) => m.id !== currentUserId);
+
+  function toggleMember(m: Member) {
+    setInvited((prev) =>
+      prev.some((p) => p.id === m.id) ? prev.filter((p) => p.id !== m.id) : [...prev, m]
+    );
+  }
+
+  async function handleCreate() {
+    if (!draft.trim() || creating) return;
+    setCreating(true);
+    const token = await getToken();
+    if (!token) { setCreating(false); return; }
+
+    try {
+      const res = await fetch("/api/conversations/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          projectId,
+          name: draft.trim(),
+          memberIds: invited.map((m) => m.id),
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        const conv: Conversation = {
+          id: json.conversation.id,
+          name: json.conversation.name,
+          lastActive: formatRelative(json.conversation.created_at),
+          messageCount: 0,
+        };
+        onConversationCreated(conv);
+        router.push(`/chat/${json.conversation.id}`);
+      }
+    } catch { /* network error */ }
+    setCreating(false);
+  }
+
+  return (
+    <div className="flex flex-col gap-6 p-6">
+      {/* Stats strip */}
+      <div className="bg-surface border border-border rounded-xl p-4 flex items-center justify-between">
+        <p className="text-xs font-medium text-foreground">{conversations.length} conversations</p>
       </div>
 
       {/* New conversation input */}
@@ -104,174 +275,276 @@ function ConversationsTab({ currentUser, conversations, members }: {
         <div className="flex items-center gap-2">
           {invited.map((m) => (
             <span
-              key={m.name}
+              key={m.id}
               className="inline-flex items-center gap-1 border border-border rounded-md pl-1 pr-1.5 py-0.5 text-xs shrink-0"
               style={{ backgroundColor: "var(--color-background)" }}
             >
               <Avatar name={m.name} color={m.color} size="xs" />
               <span className="font-medium text-foreground">{firstName(m.name)}</span>
-              <button
-                onClick={() => toggleMember(m)}
-                className="text-muted/60 hover:text-foreground transition-colors leading-none ml-0.5"
-              >×</button>
+              <button onClick={() => toggleMember(m)} className="text-muted/60 hover:text-foreground transition-colors leading-none ml-0.5">×</button>
             </span>
           ))}
 
           <input
+            ref={inputRef}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) handleCreate(); }}
             placeholder={invited.length ? "What shall we work on?" : "Shall we examine a problem together?"}
-            className="flex-1 min-w-0 bg-transparent text-sm text-foreground placeholder:text-muted/35 focus:outline-none"
+            disabled={creating}
+            className="flex-1 min-w-0 bg-transparent text-sm text-foreground placeholder:text-muted/35 focus:outline-none disabled:opacity-50"
           />
 
-          <div className="relative shrink-0">
-            <button
-              onClick={() => setPickerOpen((o) => !o)}
-              title="Add participants"
-              className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
-                pickerOpen ? "bg-background text-foreground" : "text-muted hover:text-foreground hover:bg-background"
-              }`}
-            >
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                <circle cx="5" cy="4" r="2.2" stroke="currentColor" strokeWidth="1.2" />
-                <path d="M1 11c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                <path d="M10 6v4M8 8h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-              </svg>
-            </button>
-
-            {pickerOpen && (
-              <div className="absolute bottom-full right-0 mb-2 w-44 bg-surface border border-border rounded-xl shadow-lg overflow-hidden z-10">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted/60 px-3 pt-3 pb-1.5">
-                  Add to conversation
-                </p>
-                {others.map((m) => {
-                  const selected = invited.some((p) => p.name === m.name);
-                  return (
-                    <button
-                      key={m.name}
-                      onClick={() => toggleMember(m)}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-background transition-colors text-left"
-                    >
-                      <Avatar name={m.name} color={m.color} size="xs" />
-                      <span className="flex-1 text-xs text-foreground">{m.name}</span>
-                      {selected && (
-                        <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                          <path d="M2 5.5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          {/* People picker */}
+          {others.length > 0 && (
+            <div className="relative shrink-0">
+              <button
+                onClick={() => setPickerOpen((o) => !o)}
+                title="Add participants"
+                className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${pickerOpen ? "bg-background text-foreground" : "text-muted hover:text-foreground hover:bg-background"}`}
+              >
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                  <circle cx="5" cy="4" r="2.2" stroke="currentColor" strokeWidth="1.2" />
+                  <path d="M1 11c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                  <path d="M10 6v4M8 8h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                </svg>
+              </button>
+              {pickerOpen && (
+                <div className="absolute bottom-full right-0 mb-2 w-44 bg-surface border border-border rounded-xl shadow-lg overflow-hidden z-10">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted/60 px-3 pt-3 pb-1.5">Add to conversation</p>
+                  {others.map((m) => {
+                    const selected = invited.some((p) => p.id === m.id);
+                    return (
+                      <button key={m.id} onClick={() => toggleMember(m)} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-background transition-colors text-left">
+                        <Avatar name={m.name} color={m.color} size="xs" />
+                        <span className="flex-1 text-xs text-foreground">{m.name}</span>
+                        {selected && (
+                          <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                            <path d="M2 5.5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           <button
-            disabled={!draft.trim()}
+            onClick={handleCreate}
+            disabled={!draft.trim() || creating}
             className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-all disabled:opacity-25"
             style={{ backgroundColor: "var(--color-foreground)" }}
-            aria-label="Start conversation"
           >
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-              <path d="M5.5 9V2M2 5.5l3.5-3.5 3.5 3.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            {creating ? (
+              <svg className="animate-spin" width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <circle cx="5" cy="5" r="4" stroke="white" strokeWidth="1.5" strokeDasharray="20" strokeDashoffset="10" />
+              </svg>
+            ) : (
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                <path d="M5.5 9V2M2 5.5l3.5-3.5 3.5 3.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
           </button>
         </div>
       </div>
 
       {/* Conversation list */}
-      {conversations.length === 0 && (
+      {conversations.length === 0 ? (
         <p className="text-sm text-muted text-center py-8">No conversations yet. Start one above.</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {conversations.map((c) => (
+            <ConversationRow
+              key={c.id}
+              conversation={c}
+              onRenamed={onConversationRenamed}
+            />
+          ))}
+        </div>
       )}
-      <div className="flex flex-col gap-2">
-        {conversations.map((c) => (
-          <Link
-            key={c.id}
-            href={`/chat/${c.id}`}
-            className="group flex items-center gap-4 px-4 py-3.5 rounded-xl border border-transparent hover:border-border hover:bg-surface transition-all"
-          >
-            <div className="w-44 shrink-0 min-w-0">
-              <p className="text-sm font-medium text-foreground truncate">{c.name}</p>
-              <p className="text-[11px] text-muted mt-0.5 truncate">
-                {c.participants.map((p) => (p.name === currentUser ? "You" : firstName(p.name))).join(", ")}
-                {c.participants.length > 0 && <span className="mx-1.5 text-border">·</span>}
-                {c.messageCount} messages
-              </p>
-            </div>
-
-            <div className="flex-1 min-w-0">
-              <p className="text-[11px] text-muted/60 truncate">
-                <span className="font-medium text-muted">
-                  {c.lastMessage.author === currentUser ? "You" : c.lastMessage.author === "—" ? "" : firstName(c.lastMessage.author)}
-                  {c.lastMessage.author !== "—" && ": "}
-                </span>
-                {c.lastMessage.text}
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3 shrink-0">
-              {c.participants.length > 0 && (
-                <div className="flex -space-x-2">
-                  {c.participants.slice(0, 3).map((p) => (
-                    <Avatar key={p.name} name={p.name} color={p.color} size="xs" className="ring-2 ring-background" />
-                  ))}
-                </div>
-              )}
-              <span className="text-[11px] text-muted">{c.lastActive}</span>
-              <svg
-                width="14" height="14" viewBox="0 0 14 14" fill="none"
-                className="text-border group-hover:text-muted transition-colors"
-              >
-                <path d="M5 10l4-3-4-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </div>
-          </Link>
-        ))}
-      </div>
     </div>
   );
 }
 
 // ── Documents tab ─────────────────────────────────────────────────────────────
 
-function DocumentsTab() {
+function DocumentsTab({ projectId, currentUser }: { projectId: string; currentUser: string }) {
+  const [docs, setDocs] = useState<DocumentEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    getToken().then((token) => {
+      if (!token) { setLoading(false); return; }
+      fetch(`/api/projects/${projectId}/documents`, { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => r.json())
+        .then((json) => {
+          if (json.success) setDocs(json.documents);
+          setLoading(false);
+        })
+        .catch(() => setLoading(false));
+    });
+  }, [projectId]);
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setUploadError(null);
+
+    const token = await getToken();
+    if (!token) { setUploading(false); return; }
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch(`/api/projects/${projectId}/documents`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const json = await res.json();
+      if (json.success) {
+        setDocs((prev) => [json.document, ...prev]);
+      } else {
+        setUploadError(json.error ?? "Upload failed");
+      }
+    } catch {
+      setUploadError("Network error — please try again");
+    }
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  if (loading) {
+    return <div className="p-6 text-sm text-muted">Loading…</div>;
+  }
+
   return (
     <div className="p-6 flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted">0 documents</p>
+        <p className="text-sm text-muted">{docs.length} document{docs.length !== 1 ? "s" : ""}</p>
         <button
-          disabled
-          title="Upload coming soon"
-          className="flex items-center gap-1.5 text-xs font-medium text-muted border border-border rounded-lg px-3 py-1.5 opacity-40 cursor-not-allowed"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="flex items-center gap-1.5 text-xs font-medium text-foreground border border-border rounded-lg px-3 py-1.5 hover:bg-surface transition-colors disabled:opacity-40"
         >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-            <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-          Upload
+          {uploading ? (
+            <>
+              <svg className="animate-spin" width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.5" strokeDasharray="20" strokeDashoffset="10" />
+              </svg>
+              Uploading…
+            </>
+          ) : (
+            <>
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+              Upload
+            </>
+          )}
         </button>
+        <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} />
       </div>
 
-      <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
-        <span className="text-3xl opacity-30">📄</span>
-        <p className="text-sm text-muted">No documents yet.</p>
-        <p className="text-xs text-muted/50">Document upload is coming soon.</p>
-      </div>
+      {uploadError && (
+        <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+          {uploadError}
+        </div>
+      )}
+
+      {docs.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+          <span className="text-3xl opacity-30">📄</span>
+          <p className="text-sm text-muted">No documents yet.</p>
+          <p className="text-xs text-muted/50">Upload a file to share it with the project.</p>
+        </div>
+      ) : (
+        <div className="bg-surface border border-border rounded-xl overflow-hidden">
+          {docs.map((doc, i) => (
+            <div
+              key={doc.id}
+              className={`flex items-center gap-4 px-4 py-3.5 hover:bg-background transition-colors ${i < docs.length - 1 ? "border-b border-border" : ""}`}
+            >
+              <span className="text-base shrink-0" aria-hidden>📄</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-foreground truncate">{doc.name}</p>
+                <p className="text-[11px] text-muted mt-0.5">
+                  {doc.uploader_name === currentUser ? "You" : doc.uploader_name}
+                </p>
+              </div>
+              <div className="text-right shrink-0">
+                <p className="text-[11px] text-muted">{formatRelative(doc.created_at)}</p>
+                <p className="text-[11px] text-muted/60 mt-0.5">{formatBytes(doc.size_bytes)}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 // ── Members tab ───────────────────────────────────────────────────────────────
 
-function MembersTab({ currentUser, members }: { currentUser: string; members: Member[] }) {
+function MembersTab({
+  projectId,
+  currentUser,
+  members,
+  onMembersRefresh,
+}: {
+  projectId: string;
+  currentUser: string;
+  members: Member[];
+  onMembersRefresh: () => void;
+}) {
   const [addingMember, setAddingMember] = useState(false);
   const [inviteValue, setInviteValue] = useState("");
+  const [inviting, setInviting] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
+
+  async function handleInvite() {
+    if (!inviteValue.trim() || inviting) return;
+    setInviting(true);
+    setInviteError(null);
+    setInviteSuccess(null);
+
+    const token = await getToken();
+    if (!token) { setInviting(false); return; }
+
+    try {
+      const res = await fetch(`/api/projects/${projectId}/members`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ email: inviteValue.trim() }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setInviteSuccess(`${json.member.display_name} added to the project.`);
+        setInviteValue("");
+        onMembersRefresh();
+      } else {
+        setInviteError(json.error ?? "Failed to invite member");
+      }
+    } catch {
+      setInviteError("Network error — please try again");
+    }
+    setInviting(false);
+  }
 
   return (
     <div className="p-6 flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted">{members.length} members</p>
+        <p className="text-sm text-muted">{members.length} member{members.length !== 1 ? "s" : ""}</p>
         <button
-          onClick={() => setAddingMember((v) => !v)}
+          onClick={() => { setAddingMember((v) => !v); setInviteError(null); setInviteSuccess(null); }}
           className="flex items-center gap-1.5 text-xs font-medium text-foreground border border-border rounded-lg px-3 py-1.5 hover:bg-surface transition-colors"
         >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -282,74 +555,68 @@ function MembersTab({ currentUser, members }: { currentUser: string; members: Me
       </div>
 
       {addingMember && (
-        <div className="flex gap-2">
-          <input
-            autoFocus
-            value={inviteValue}
-            onChange={(e) => setInviteValue(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && (setAddingMember(false), setInviteValue(""))}
-            placeholder="Email or name…"
-            className="flex-1 text-sm bg-surface border border-border rounded-lg px-3 py-2 focus:outline-none focus:border-foreground/30 placeholder:text-muted/40"
-          />
-          <button
-            onClick={() => { setAddingMember(false); setInviteValue(""); }}
-            className="text-sm font-medium bg-foreground text-surface px-4 py-2 rounded-lg hover:opacity-80 transition-opacity"
-          >
-            Send invite
-          </button>
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            <input
+              autoFocus
+              value={inviteValue}
+              onChange={(e) => setInviteValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleInvite(); }}
+              placeholder="Email address…"
+              className="flex-1 text-sm bg-surface border border-border rounded-lg px-3 py-2 focus:outline-none focus:border-foreground/30 placeholder:text-muted/40"
+            />
+            <button
+              onClick={handleInvite}
+              disabled={!inviteValue.trim() || inviting}
+              className="text-sm font-medium bg-foreground text-surface px-4 py-2 rounded-lg hover:opacity-80 transition-opacity disabled:opacity-40"
+            >
+              {inviting ? "Adding…" : "Add"}
+            </button>
+          </div>
+          {inviteError && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{inviteError}</p>
+          )}
+          {inviteSuccess && (
+            <p className="text-xs text-green-700 bg-green-50 border border-green-100 rounded-lg px-3 py-2">{inviteSuccess}</p>
+          )}
+          <p className="text-[11px] text-muted/60">They must already have an Elenchus account.</p>
         </div>
       )}
 
       <div className="bg-surface border border-border rounded-xl overflow-hidden">
         {members.map((m, i) => (
           <div
-            key={m.name}
+            key={m.id}
             className={`flex items-center gap-4 px-4 py-4 ${i < members.length - 1 ? "border-b border-border" : ""}`}
           >
             <div className="relative shrink-0">
               <Avatar name={m.name} color={m.color} size="md" />
-              <span
-                className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full ring-2 ring-surface"
-                style={{ backgroundColor: m.online ? "#4ADE80" : "#D1D5DB" }}
-              />
+              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full ring-2 ring-surface" style={{ backgroundColor: m.online ? "#4ADE80" : "#D1D5DB" }} />
             </div>
-
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
                 <p className="text-sm font-medium text-foreground">
                   {m.name}
-                  {m.name === currentUser && (
-                    <span className="font-normal text-muted ml-1.5 text-xs">— You</span>
-                  )}
+                  {m.name === currentUser && <span className="font-normal text-muted ml-1.5 text-xs">— You</span>}
                 </p>
                 <span
                   className="text-[10px] font-medium rounded-full px-2 py-px border"
-                  style={
-                    m.role === "Can edit"
-                      ? { color: "#1D4ED8", borderColor: "#BFDBFE", backgroundColor: "#EFF6FF" }
-                      : { color: "#6b6b6b", borderColor: "rgba(0,0,0,0.10)", backgroundColor: "#F7F5F0" }
-                  }
+                  style={m.role === "Can edit"
+                    ? { color: "#1D4ED8", borderColor: "#BFDBFE", backgroundColor: "#EFF6FF" }
+                    : { color: "#6b6b6b", borderColor: "rgba(0,0,0,0.10)", backgroundColor: "#F7F5F0" }}
                 >
                   {m.role}
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="flex-1 h-1 rounded-full bg-border overflow-hidden">
-                  <div
-                    className="h-full rounded-full"
-                    style={{ width: `${m.tokenPct}%`, backgroundColor: solidColor[m.color] }}
-                  />
+                  <div className="h-full rounded-full" style={{ width: `${m.tokenPct}%`, backgroundColor: solidColor[m.color] }} />
                 </div>
                 <span className="text-[11px] text-muted shrink-0">{m.tokenPct}% of tokens</span>
               </div>
             </div>
-
-            <button className="shrink-0 text-[11px] text-muted hover:text-foreground border border-border rounded-lg px-2.5 py-1.5 transition-colors">
-              ···
-            </button>
           </div>
         ))}
-
         <button
           onClick={() => setAddingMember((v) => !v)}
           className="w-full flex items-center gap-3 px-4 py-3.5 border-t border-border hover:bg-background transition-colors text-left"
@@ -366,31 +633,211 @@ function MembersTab({ currentUser, members }: { currentUser: string; members: Me
   );
 }
 
-// ── Catch up tab ──────────────────────────────────────────────────────────────
+// ── Activity tab ──────────────────────────────────────────────────────────────
 
-function CatchUpTab() {
+const ACTION_LABELS: Record<string, string> = {
+  created_project:       "created this project",
+  renamed_project:       "renamed this project to",
+  created_conversation:  "started a conversation",
+  renamed_conversation:  "renamed a conversation to",
+  invited_member:        "invited",
+  removed_member:        "removed",
+  left_project:          "left this project",
+  uploaded_document:     "uploaded",
+};
+
+function ActivityTab({ projectId }: { projectId: string }) {
+  const [activity, setActivity] = useState<ActivityEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getToken().then((token) => {
+      if (!token) { setLoading(false); return; }
+      fetch(`/api/projects/${projectId}/activity`, { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => r.json())
+        .then((json) => {
+          if (json.success) setActivity(json.activity);
+          setLoading(false);
+        })
+        .catch(() => setLoading(false));
+    });
+  }, [projectId]);
+
+  if (loading) return <div className="p-6 text-sm text-muted">Loading…</div>;
+
+  if (activity.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" className="text-muted/30">
+          <path d="M4 20l6-8 5 6 4-5 5 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <p className="text-sm text-muted">No activity yet.</p>
+        <p className="text-xs text-muted/50">Actions in this project will appear here.</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
-      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" className="text-muted/30">
-        <circle cx="14" cy="14" r="12" stroke="currentColor" strokeWidth="1.5" />
-        <path d="M14 8v6.5l4 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-      <p className="text-sm text-muted">You&apos;re all caught up.</p>
-      <p className="text-xs text-muted/50">Mentions and unread messages will appear here.</p>
+    <div className="p-6">
+      <div className="relative flex flex-col gap-px">
+        <div className="absolute left-[11px] top-3 bottom-3 w-px bg-border" />
+        {activity.map((item) => (
+          <div key={item.id} className="flex items-start gap-3 py-2.5 relative">
+            {item.user_name ? (
+              <Avatar name={item.user_name} color={(item.user_color as UserColor) ?? "blue"} size="xs" className="shrink-0 mt-0.5 z-10" />
+            ) : (
+              <span className="w-6 h-6 rounded-full shrink-0 mt-0.5 z-10 flex items-center justify-center text-[8px] font-semibold" style={{ backgroundColor: "#E8E5E0", color: "#6b6b6b" }}>Cl</span>
+            )}
+            <div className="flex-1 min-w-0 pt-0.5">
+              <p className="text-sm text-foreground leading-snug">
+                <span className="font-medium">{item.user_name ?? "System"}</span>
+                {" "}
+                <span className="text-muted">{ACTION_LABELS[item.action] ?? item.action}</span>
+                {item.target_name && (
+                  <>{" "}<span className="font-medium text-foreground">{item.target_name}</span></>
+                )}
+              </p>
+            </div>
+            <span className="text-[11px] text-muted shrink-0 pt-0.5">{formatRelative(item.created_at)}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-// ── Activity tab ──────────────────────────────────────────────────────────────
+// ── Catch up tab ──────────────────────────────────────────────────────────────
 
-function ActivityTab() {
+function highlightMention(text: string, displayName: string) {
+  const pattern = new RegExp(`(@${displayName.split(" ")[0]})`, "gi");
+  const parts = text.split(pattern);
+  return parts.map((part, i) =>
+    pattern.test(part) ? <span key={i} className="font-semibold text-blue-600">{part}</span> : part
+  );
+}
+
+function CatchUpTab({ projectId, currentUser }: { projectId: string; currentUser: string }) {
+  const [mentions, setMentions] = useState<Mention[]>([]);
+  const [unread, setUnread] = useState<UnreadConversation[]>([]);
+  const [lastSeen, setLastSeen] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getToken().then((token) => {
+      if (!token) { setLoading(false); return; }
+      fetch(`/api/projects/${projectId}/catchup`, { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => r.json())
+        .then((json) => {
+          if (json.success) {
+            setMentions(json.mentions);
+            setUnread(json.unread);
+            setLastSeen(json.lastSeenAt);
+          }
+          setLoading(false);
+        })
+        .catch(() => setLoading(false));
+    });
+  }, [projectId]);
+
+  if (loading) return <div className="p-6 text-sm text-muted">Loading…</div>;
+
+  if (mentions.length === 0 && unread.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" className="text-muted/30">
+          <circle cx="14" cy="14" r="12" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M14 8v6.5l4 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <p className="text-sm text-muted">You&apos;re all caught up.</p>
+        {lastSeen && (
+          <p className="text-xs text-muted/50">Last checked {formatRelative(lastSeen)}</p>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
-      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" className="text-muted/30">
-        <path d="M4 20l6-8 5 6 4-5 5 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-      <p className="text-sm text-muted">No activity yet.</p>
-      <p className="text-xs text-muted/50">Actions in this project will be logged here.</p>
+    <div className="flex flex-col gap-8 p-6">
+      {lastSeen && (
+        <div className="flex items-center gap-2 text-xs text-muted">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0">
+            <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.2" />
+            <path d="M6 3.5V6.5L8 8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Since your last visit {formatRelative(lastSeen)}.
+        </div>
+      )}
+
+      {mentions.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted/60">Mentions</p>
+            <span className="text-[10px] font-semibold bg-blue-500 text-white rounded-full px-1.5 py-px leading-none">
+              {mentions.length}
+            </span>
+          </div>
+          <div className="flex flex-col gap-2">
+            {mentions.map((m) => (
+              <Link
+                key={m.id}
+                href={`/chat/${m.conversation_id}`}
+                className="group flex flex-col gap-2 bg-surface border border-border rounded-xl px-4 py-3.5 hover:border-foreground/15 transition-all"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xs font-medium text-foreground truncate">{m.author_display_name}</span>
+                    <span className="text-muted/40 text-xs shrink-0">in</span>
+                    <span className="text-xs text-muted truncate">{m.conversation_name}</span>
+                  </div>
+                  <span className="text-[11px] text-muted shrink-0">{formatRelative(m.created_at)}</span>
+                </div>
+                <p className="text-xs text-muted leading-relaxed line-clamp-2">
+                  {highlightMention(m.content, currentUser)}
+                </p>
+                <span className="text-[11px] font-medium text-muted group-hover:text-foreground transition-colors flex items-center gap-1">
+                  Open conversation
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                    <path d="M3 7.5l4-3-4-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {unread.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted/60">New messages</p>
+            <span className="text-[10px] font-semibold text-muted bg-background border border-border rounded-full px-1.5 py-px leading-none">
+              {unread.reduce((s, c) => s + c.new_count, 0)}
+            </span>
+          </div>
+          <div className="flex flex-col gap-2">
+            {unread.map((c) => (
+              <Link
+                key={c.id}
+                href={`/chat/${c.id}`}
+                className="group flex items-center gap-4 bg-surface border border-border rounded-xl px-4 py-3.5 hover:border-foreground/15 transition-all"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">{c.name}</p>
+                  <p className="text-[11px] text-muted mt-0.5">{formatRelative(c.latest_at)}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[11px] font-semibold text-white bg-foreground rounded-full px-2 py-px leading-none">
+                    {c.new_count} new
+                  </span>
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-border group-hover:text-muted transition-colors">
+                    <path d="M5 10l4-3-4-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -407,21 +854,9 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "catchup",       label: "Catch up"      },
 ];
 
-function formatRelative(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 2) return "Just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days === 1) return "Yesterday";
-  if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
-}
-
 function mapMember(m: ProjectMemberWithUser): Member {
   return {
+    id: m.user_id,
     name: m.user.display_name,
     color: (m.user.color as UserColor) ?? "blue",
     role: m.role === "can_edit" ? "Can edit" : "Can use",
@@ -430,22 +865,24 @@ function mapMember(m: ProjectMemberWithUser): Member {
   };
 }
 
-function mapConversation(c: DBConversation): Conversation {
+function mapConversation(c: DBConversation, participants: MemberPreview[] = []): Conversation {
   return {
     id: c.id,
     name: c.name,
-    participants: [],
     lastActive: formatRelative(c.created_at),
     messageCount: 0,
-    lastMessage: { author: "—", text: "Start the conversation" },
+    participants,
   };
 }
 
 export default function ProjectPage() {
   const params = useParams<{ projectId: string }>();
   const projectId = params.projectId;
+  const router = useRouter();
   const { profile, user } = useAuth();
   const currentUser = profile?.display_name ?? user?.email ?? "";
+  const currentUserId = user?.id ?? "";
+
   const [activeTab, setActiveTab] = useState<Tab>("conversations");
   const [navOpen, setNavOpen] = useState(true);
   const [projectName, setProjectName] = useState("");
@@ -456,11 +893,16 @@ export default function ProjectPage() {
   const [realMembers, setRealMembers] = useState<Member[]>([]);
   const [realConversations, setRealConversations] = useState<Conversation[]>([]);
   const [realEmoji, setRealEmoji] = useState("📁");
+
   // Header inline name edit
   const [headerEditing, setHeaderEditing] = useState(false);
   const [headerDraft, setHeaderDraft] = useState("");
+  const [headerDraftEmoji, setHeaderDraftEmoji] = useState("📁");
+  const [headerEmojiOpen, setHeaderEmojiOpen] = useState(false);
   const [headerSaving, setHeaderSaving] = useState(false);
   const headerInputRef = useRef<HTMLInputElement>(null);
+  const headerCancelRef = useRef(false);
+  const onlineIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!user) return;
@@ -476,10 +918,73 @@ export default function ProjectPage() {
         setDraftDesc(projRes.data.description ?? "");
         setRealEmoji(projRes.data.emoji ?? "📁");
       }
-      if (membersRes.data) setRealMembers(membersRes.data.map(mapMember));
-      if (convsRes.data) setRealConversations(convsRes.data.map(mapConversation));
+      if (membersRes.data) setRealMembers(membersRes.data.map((m) => ({
+        ...mapMember(m),
+        online: onlineIdsRef.current.has(m.user_id),
+      })));
+      if (convsRes.data) {
+        const mapped = convsRes.data.map((c) => mapConversation(c));
+        setRealConversations(mapped);
+        const ids = mapped.map((c) => c.id);
+        if (ids.length > 0) {
+          Promise.all([
+            supabase.from("messages").select("conversation_id").in("conversation_id", ids),
+            getConversationMemberPreviews(ids),
+          ]).then(([{ data: rows }, participantMap]) => {
+            const counts = new Map<string, number>();
+            (rows ?? []).forEach((r) => {
+              const id = (r as { conversation_id: string }).conversation_id;
+              counts.set(id, (counts.get(id) ?? 0) + 1);
+            });
+            setRealConversations((prev) =>
+              prev.map((c) => ({
+                ...c,
+                messageCount: counts.get(c.id) ?? 0,
+                participants: participantMap.get(c.id) ?? [],
+              }))
+            );
+          });
+        }
+      }
     });
   }, [projectId, user]);
+
+  const refreshMembers = useCallback(async () => {
+    if (!user) return;
+    const { data } = await getProjectMembers(projectId, user.id);
+    if (data) setRealMembers(data.map((m) => ({ ...mapMember(m), online: onlineIdsRef.current.has(m.user_id) })));
+  }, [projectId, user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const presence = supabase.channel(`presence:project:${projectId}`);
+    presence
+      .on("presence", { event: "sync" }, () => {
+        const state = presence.presenceState<{ user_id: string }>();
+        const online = new Set(Object.values(state).flat().map((p) => p.user_id));
+        onlineIdsRef.current = online;
+        setRealMembers((prev) => prev.map((m) => ({ ...m, online: online.has(m.id) })));
+      })
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await presence.track({ user_id: user.id });
+        }
+      });
+    return () => { supabase.removeChannel(presence); };
+  }, [projectId, user]);
+
+  async function handleNewConversation() {
+    const token = await getToken();
+    if (!token) return;
+    const name = `New conversation — ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+    const res = await fetch("/api/conversations/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ projectId, name, memberIds: [] }),
+    });
+    const json = await res.json();
+    if (json.success) router.push(`/chat/${json.conversation.id}`);
+  }
 
   function startEdit() {
     setDraftName(projectName);
@@ -494,22 +999,22 @@ export default function ProjectPage() {
   }
 
   async function saveHeaderName() {
+    if (headerCancelRef.current) { headerCancelRef.current = false; return; }
     const trimmed = headerDraft.trim();
-    if (!trimmed || trimmed === projectName || headerSaving) {
-      setHeaderEditing(false);
-      return;
-    }
+    setHeaderEmojiOpen(false);
+    if (!trimmed || headerSaving) { setHeaderEditing(false); return; }
+    if (trimmed === projectName && headerDraftEmoji === realEmoji) { setHeaderEditing(false); return; }
     setHeaderSaving(true);
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session) {
+    const token = await getToken();
+    if (token) {
       try {
         const res = await fetch(`/api/projects/${projectId}`, {
           method: "PUT",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-          body: JSON.stringify({ name: trimmed }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ name: trimmed, emoji: headerDraftEmoji }),
         });
         const json = await res.json();
-        if (json.success) setProjectName(trimmed);
+        if (json.success) { setProjectName(trimmed); setRealEmoji(headerDraftEmoji); }
       } catch { /* best-effort */ }
     }
     setHeaderSaving(false);
@@ -518,12 +1023,9 @@ export default function ProjectPage() {
 
   return (
     <div className="h-screen flex bg-background overflow-hidden">
-
       {navOpen && <LeftNav activeProjectId={projectId} />}
 
-      {/* Main column */}
       <div className="flex flex-col flex-1 overflow-hidden min-w-0">
-
         {/* Header */}
         <header className="h-14 border-b border-border bg-surface flex items-center px-5 gap-3 shrink-0">
           <button
@@ -539,34 +1041,77 @@ export default function ProjectPage() {
 
           <span className="text-border text-sm select-none">/</span>
 
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <span className="text-base" aria-hidden>{realEmoji}</span>
-            {headerEditing ? (
+          {headerEditing ? (
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              {/* Emoji button + popup */}
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setHeaderEmojiOpen((o) => !o)}
+                  className="w-8 h-8 flex items-center justify-center text-base rounded-lg hover:bg-background transition-colors"
+                  title="Change emoji"
+                >
+                  {headerDraftEmoji}
+                </button>
+                {headerEmojiOpen && (
+                  <div
+                    onMouseDown={(e) => e.preventDefault()}
+                    className="absolute left-0 top-full mt-1 z-20 bg-surface border border-border rounded-xl p-2 shadow-lg grid grid-cols-4 gap-1"
+                    style={{ width: "10rem" }}
+                  >
+                    {EMOJI_OPTIONS.map((e) => (
+                      <button
+                        key={e}
+                        type="button"
+                        onMouseDown={(evt) => evt.preventDefault()}
+                        onClick={() => { setHeaderDraftEmoji(e); setHeaderEmojiOpen(false); headerInputRef.current?.focus(); }}
+                        className={`w-8 h-8 flex items-center justify-center rounded-lg text-base hover:bg-background transition-colors ${headerDraftEmoji === e ? "bg-background ring-1 ring-foreground/20" : ""}`}
+                      >
+                        {e}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <input
                 ref={headerInputRef}
                 value={headerDraft}
                 onChange={(e) => setHeaderDraft(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") { e.preventDefault(); saveHeaderName(); }
-                  if (e.key === "Escape") { setHeaderEditing(false); setHeaderDraft(projectName); }
+                  if (e.key === "Escape") { headerCancelRef.current = true; setHeaderEditing(false); setHeaderEmojiOpen(false); setHeaderDraft(projectName); setHeaderDraftEmoji(realEmoji); }
                 }}
                 onBlur={saveHeaderName}
                 disabled={headerSaving}
                 maxLength={80}
-                className="text-sm font-medium text-foreground bg-transparent border-b border-foreground/40 focus:outline-none focus:border-foreground truncate flex-1 min-w-0 disabled:opacity-50"
+                className="text-sm font-medium text-foreground bg-transparent border-b border-foreground/40 focus:outline-none focus:border-foreground flex-1 min-w-0 disabled:opacity-50"
               />
-            ) : (
               <button
-                onClick={() => { if (!projectName) return; setHeaderDraft(projectName); setHeaderEditing(true); setTimeout(() => headerInputRef.current?.select(), 0); }}
+                onMouseDown={() => { headerCancelRef.current = true; }}
+                onClick={() => { headerCancelRef.current = false; setHeaderEditing(false); setHeaderEmojiOpen(false); setHeaderDraft(projectName); setHeaderDraftEmoji(realEmoji); }}
+                className="text-[11px] text-muted hover:text-foreground shrink-0"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <span className="text-base shrink-0" aria-hidden>{realEmoji}</span>
+              <button
+                onClick={() => { if (!projectName) return; setHeaderDraft(projectName); setHeaderDraftEmoji(realEmoji); setHeaderEditing(true); setTimeout(() => headerInputRef.current?.select(), 0); }}
                 title="Click to rename"
                 className="text-sm font-medium text-foreground truncate hover:opacity-70 transition-opacity text-left min-w-0"
               >
                 {projectName || "Loading…"}
               </button>
-            )}
-          </div>
+            </div>
+          )}
 
-          <button className="flex items-center gap-1.5 bg-foreground text-surface text-xs font-medium rounded-lg px-3 py-2 hover:opacity-80 transition-opacity shrink-0">
+          <button
+            onClick={handleNewConversation}
+            className="flex items-center gap-1.5 bg-foreground text-surface text-xs font-medium rounded-lg px-3 py-2 hover:opacity-80 transition-opacity shrink-0"
+          >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
               <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
@@ -582,10 +1127,8 @@ export default function ProjectPage() {
 
         {/* Body */}
         <div className="flex flex-1 overflow-hidden">
-
           {/* Right sidebar */}
           <aside className="w-56 border-l border-border bg-surface flex flex-col overflow-y-auto shrink-0 order-last">
-
             {/* Project info */}
             <div className="px-4 pt-5 pb-4 border-b border-border">
               {editingProject ? (
@@ -604,18 +1147,8 @@ export default function ProjectPage() {
                     className="text-[11px] text-muted bg-background border border-border rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-foreground/30 w-full resize-none leading-snug"
                   />
                   <div className="flex gap-1.5">
-                    <button
-                      onClick={saveEdit}
-                      className="flex-1 text-[11px] font-semibold bg-foreground text-surface rounded-md py-1.5 hover:opacity-80 transition-opacity"
-                    >
-                      Save
-                    </button>
-                    <button
-                      onClick={() => setEditingProject(false)}
-                      className="flex-1 text-[11px] text-muted border border-border rounded-md py-1.5 hover:bg-background transition-colors"
-                    >
-                      Cancel
-                    </button>
+                    <button onClick={saveEdit} className="flex-1 text-[11px] font-semibold bg-foreground text-surface rounded-md py-1.5 hover:opacity-80 transition-opacity">Save</button>
+                    <button onClick={() => setEditingProject(false)} className="flex-1 text-[11px] text-muted border border-border rounded-md py-1.5 hover:bg-background transition-colors">Cancel</button>
                   </div>
                 </div>
               ) : (
@@ -642,29 +1175,17 @@ export default function ProjectPage() {
 
             {/* Members */}
             <div className="px-4 py-4 border-b border-border">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted/60 mb-3">
-                Members
-              </p>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted/60 mb-3">Members</p>
               <div className="flex flex-col gap-2.5">
                 {realMembers.map((m) => (
-                  <div key={m.name} className="flex items-center gap-2.5">
+                  <div key={m.id} className="flex items-center gap-2.5">
                     <div className="relative shrink-0">
                       <Avatar name={m.name} color={m.color} size="sm" />
-                      <span
-                        className="absolute bottom-0 right-0 w-2 h-2 rounded-full ring-2 ring-surface"
-                        style={{ backgroundColor: m.online ? "#4ADE80" : "#D1D5DB" }}
-                      />
+                      <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full ring-2 ring-surface" style={{ backgroundColor: m.online ? "#4ADE80" : "#D1D5DB" }} />
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-medium text-foreground truncate">
-                        {m.name === currentUser ? (
-                          <>
-                            {m.name}
-                            <span className="font-normal text-muted ml-1">— You</span>
-                          </>
-                        ) : (
-                          m.name
-                        )}
+                        {m.name === currentUser ? <>{m.name}<span className="font-normal text-muted ml-1">— You</span></> : m.name}
                       </p>
                       <p className="text-[10px] text-muted">{m.online ? "Online" : "Away"}</p>
                     </div>
@@ -675,16 +1196,18 @@ export default function ProjectPage() {
 
             {/* Documents */}
             <div className="px-4 py-4">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted/60 mb-3">
-                Documents
-              </p>
-              <p className="text-[11px] text-muted/50">No documents yet.</p>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted/60 mb-2">Documents</p>
+              <button
+                onClick={() => setActiveTab("documents")}
+                className="text-[11px] text-muted/50 hover:text-muted transition-colors text-left"
+              >
+                View in Documents tab →
+              </button>
             </div>
           </aside>
 
           {/* Main */}
           <main className="flex-1 flex flex-col overflow-hidden min-w-0">
-
             {/* Tab bar */}
             <div className="flex items-end gap-6 px-6 border-b border-border bg-surface shrink-0">
               {TABS.map((tab) => (
@@ -706,11 +1229,32 @@ export default function ProjectPage() {
             {/* Tab content */}
             <div className="flex-1 overflow-y-auto">
               <div className="max-w-3xl mx-auto">
-                {activeTab === "catchup"       && <CatchUpTab />}
-                {activeTab === "conversations" && <ConversationsTab currentUser={currentUser} conversations={realConversations} members={realMembers} />}
-                {activeTab === "documents"     && <DocumentsTab />}
-                {activeTab === "members"       && <MembersTab currentUser={currentUser} members={realMembers} />}
-                {activeTab === "activity"      && <ActivityTab />}
+                {activeTab === "conversations" && (
+                  <ConversationsTab
+                    projectId={projectId}
+                    currentUser={currentUser}
+                    currentUserId={currentUserId}
+                    conversations={realConversations}
+                    members={realMembers}
+                    onConversationCreated={(conv) => setRealConversations((prev) => [conv, ...prev])}
+                    onConversationRenamed={(id, newName) =>
+                      setRealConversations((prev) => prev.map((c) => c.id === id ? { ...c, name: newName } : c))
+                    }
+                  />
+                )}
+                {activeTab === "documents" && (
+                  <DocumentsTab projectId={projectId} currentUser={currentUser} />
+                )}
+                {activeTab === "members" && (
+                  <MembersTab
+                    projectId={projectId}
+                    currentUser={currentUser}
+                    members={realMembers}
+                    onMembersRefresh={refreshMembers}
+                  />
+                )}
+                {activeTab === "activity" && <ActivityTab projectId={projectId} />}
+                {activeTab === "catchup" && <CatchUpTab projectId={projectId} currentUser={currentUser} />}
               </div>
             </div>
           </main>

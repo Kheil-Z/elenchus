@@ -8,7 +8,9 @@ import { Avatar } from "@/components/Avatar";
 import { NewProjectModal } from "@/components/NewProjectModal";
 import { useAuth } from "@/lib/auth-context";
 import { getApiKeyStatus } from "@/lib/api-key";
-import { getProjects, getConversations } from "@/lib/db";
+import { getProjects, getConversations, getProjectMemberPreviews } from "@/lib/db";
+import { MemberAvatarStack } from "@/components/MemberAvatarStack";
+import type { MemberPreview } from "@/lib/db";
 import { supabase } from "@/lib/supabase";
 import type { ApiKeyStatus } from "@/lib/api-key";
 import type { UserColor } from "@/lib/types";
@@ -34,6 +36,10 @@ async function getToken(): Promise<string | null> {
   return session?.access_token ?? null;
 }
 
+// ── Shared emoji options ──────────────────────────────────────────────────────
+
+const EMOJI_OPTIONS = ["📁", "🗂️", "💼", "🚀", "💡", "🔬", "📝", "🎯", "⚡", "🌱", "🏗️", "🎨", "📊", "🔒", "🤝", "🧪"];
+
 // ── Rename modal ──────────────────────────────────────────────────────────────
 
 function RenameModal({
@@ -43,9 +49,10 @@ function RenameModal({
 }: {
   project: Project;
   onClose: () => void;
-  onRenamed: (id: string, newName: string) => void;
+  onRenamed: (id: string, newName: string, newEmoji: string) => void;
 }) {
   const [value, setValue] = useState(project.name);
+  const [emoji, setEmoji] = useState(project.emoji ?? "📁");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -58,7 +65,9 @@ function RenameModal({
   }, [onClose]);
 
   async function handleSave() {
-    if (!value.trim() || value.trim() === project.name || saving) return;
+    const trimmed = value.trim();
+    if (!trimmed || saving) return;
+    if (trimmed === project.name && emoji === (project.emoji ?? "📁")) { onClose(); return; }
     setSaving(true);
     setError(null);
     const token = await getToken();
@@ -67,11 +76,11 @@ function RenameModal({
       const res = await fetch(`/api/projects/${project.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name: value.trim() }),
+        body: JSON.stringify({ name: trimmed, emoji }),
       });
       const json = await res.json();
       if (!json.success) { setError(json.error ?? "Failed to rename"); setSaving(false); return; }
-      onRenamed(project.id, value.trim());
+      onRenamed(project.id, trimmed, emoji);
       onClose();
     } catch {
       setError("Network error — please try again");
@@ -90,14 +99,49 @@ function RenameModal({
           <h2 className="font-serif text-lg text-foreground tracking-tight">Rename project</h2>
         </div>
         <div className="px-6 pb-6 flex flex-col gap-3">
-          <input
-            ref={inputRef}
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
-            maxLength={80}
-            className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-foreground/25 transition-colors"
-          />
+          <div className="flex items-center gap-2">
+            <div className="relative group/emoji shrink-0">
+              <button
+                className="w-10 h-10 flex items-center justify-center text-xl rounded-xl border border-border hover:border-foreground/20 bg-background transition-colors"
+                title="Change emoji"
+                type="button"
+              >
+                {emoji}
+              </button>
+              <div className="absolute left-0 top-full mt-1 z-10 hidden group-focus-within/emoji:flex flex-wrap gap-1 bg-surface border border-border rounded-xl p-2 shadow-lg w-52">
+                {EMOJI_OPTIONS.map((e) => (
+                  <button
+                    key={e}
+                    type="button"
+                    onClick={() => setEmoji(e)}
+                    className={`w-8 h-8 flex items-center justify-center rounded-lg text-base hover:bg-background transition-colors ${emoji === e ? "bg-background ring-1 ring-foreground/20" : ""}`}
+                  >
+                    {e}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <input
+              ref={inputRef}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
+              maxLength={80}
+              className="flex-1 bg-background border border-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-foreground/25 transition-colors"
+            />
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {EMOJI_OPTIONS.map((e) => (
+              <button
+                key={e}
+                type="button"
+                onClick={() => setEmoji(e)}
+                className={`w-8 h-8 flex items-center justify-center rounded-lg text-base hover:bg-background transition-colors ${emoji === e ? "bg-background ring-1 ring-foreground/20" : ""}`}
+              >
+                {e}
+              </button>
+            ))}
+          </div>
           {error && (
             <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>
           )}
@@ -107,11 +151,11 @@ function RenameModal({
             </button>
             <button
               onClick={handleSave}
-              disabled={!value.trim() || value.trim() === project.name || saving}
+              disabled={!value.trim() || saving}
               className="flex-1 text-sm font-medium text-surface rounded-xl py-2.5 transition-all disabled:opacity-40"
               style={{ backgroundColor: "var(--color-foreground)" }}
             >
-              {saving ? "Saving…" : "Rename"}
+              {saving ? "Saving…" : "Save"}
             </button>
           </div>
         </div>
@@ -221,11 +265,13 @@ function DeleteModal({
 
 function ProjectCard({
   project,
+  members = [],
   onRename,
   onDelete,
   isOwner = true,
 }: {
   project: Project;
+  members?: MemberPreview[];
   onRename: (p: Project) => void;
   onDelete: (p: Project) => void;
   isOwner?: boolean;
@@ -259,7 +305,8 @@ function ProjectCard({
             </p>
           </div>
         </div>
-        <div className="flex items-center justify-end">
+        <div className="flex items-center justify-between">
+          <MemberAvatarStack members={members} max={4} size="xs" />
           <span className="text-xs text-muted" style={{ opacity: 0.6 }}>
             {formatRelative(project.created_at)}
           </span>
@@ -390,6 +437,7 @@ export default function ProjectsPage() {
   const [totalConvCount, setTotalConvCount] = useState(0);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsVersion, setProjectsVersion] = useState(0);
+  const [memberPreviews, setMemberPreviews] = useState<Map<string, MemberPreview[]>>(new Map());
 
   // Rename / delete state
   const [renamingProject, setRenamingProject] = useState<Project | null>(null);
@@ -435,15 +483,28 @@ export default function ProjectsPage() {
       setRecentChats(
         allConvs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 6)
       );
+
+      const previewMap = await getProjectMemberPreviews(projects.map((p) => p.id));
+      // Owner goes first within each project
+      previewMap.forEach((members, projectId) => {
+        const ownerProject = projects.find((p) => p.id === projectId);
+        if (ownerProject) {
+          members.sort((a, b) =>
+            a.userId === ownerProject.created_by ? -1 : b.userId === ownerProject.created_by ? 1 : 0
+          );
+        }
+      });
+      setMemberPreviews(previewMap);
+
       setProjectsLoading(false);
     }
 
     load();
   }, [user, projectsVersion]);
 
-  function handleRenamed(id: string, newName: string) {
-    setMyProjects((prev) => prev.map((p) => p.id === id ? { ...p, name: newName } : p));
-    setJoinedProjects((prev) => prev.map((p) => p.id === id ? { ...p, name: newName } : p));
+  function handleRenamed(id: string, newName: string, newEmoji: string) {
+    setMyProjects((prev) => prev.map((p) => p.id === id ? { ...p, name: newName, emoji: newEmoji } : p));
+    setJoinedProjects((prev) => prev.map((p) => p.id === id ? { ...p, name: newName, emoji: newEmoji } : p));
   }
 
   function handleDeleted(id: string) {
@@ -535,6 +596,7 @@ export default function ProjectsPage() {
                       <ProjectCard
                         key={p.id}
                         project={p}
+                        members={memberPreviews.get(p.id) ?? []}
                         isOwner
                         onRename={setRenamingProject}
                         onDelete={setDeletingProject}
@@ -561,6 +623,7 @@ export default function ProjectsPage() {
                       <ProjectCard
                         key={p.id}
                         project={p}
+                        members={memberPreviews.get(p.id) ?? []}
                         isOwner={false}
                         onRename={setRenamingProject}
                         onDelete={setDeletingProject}

@@ -43,6 +43,7 @@ export default function ChatPage() {
   const currentUserColor = (profile?.color as UserColor) ?? "blue";
 
   const [conversation, setConversation] = useState<Conversation | null>(null);
+  const [conversationName, setConversationName] = useState("");
   const [project, setProject] = useState<Project | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatMembers, setChatMembers] = useState<ChatMember[]>([]);
@@ -51,6 +52,7 @@ export default function ChatPage() {
   const [awaitingClaude, setAwaitingClaude] = useState(false);
   const [apiKeyStatus, setApiKeyStatus] = useState<ApiKeyStatus | "loading">("loading");
   const colorMapRef = useRef<Map<string, UserColor>>(new Map());
+  const onlineIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => { getApiKeyStatus().then(setApiKeyStatus); }, []);
 
@@ -62,7 +64,7 @@ export default function ChatPage() {
       const convResult = await getConversation(conversationId, user!.id);
       if (cancelled || convResult.error || !convResult.data) { setLoading(false); return; }
       const conv = convResult.data;
-      if (!cancelled) setConversation(conv);
+      if (!cancelled) { setConversation(conv); setConversationName(conv.name); }
 
       const [projResult, membersResult, msgResult] = await Promise.all([
         getProject(conv.project_id, user!.id),
@@ -81,9 +83,10 @@ export default function ChatPage() {
         });
         colorMapRef.current = colorMap;
         setChatMembers(membersResult.data.map((m) => ({
+          userId: m.user_id,
           name: m.user.display_name,
           color: (m.user.color as UserColor) ?? "blue",
-          online: false,
+          online: onlineIdsRef.current.has(m.user_id),
           tokenPct: 0,
         })));
       }
@@ -107,6 +110,28 @@ export default function ChatPage() {
       if (newMsg.role === "assistant") setAwaitingClaude(false);
     });
     return () => { supabase.removeChannel(channel); };
+  }, [conversationId, user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const presence = supabase.channel(`presence:${conversationId}`);
+    presence
+      .on("presence", { event: "sync" }, () => {
+        const state = presence.presenceState<{ user_id: string }>();
+        const online = new Set(
+          Object.values(state).flat().map((p) => p.user_id)
+        );
+        onlineIdsRef.current = online;
+        setChatMembers((prev) =>
+          prev.map((m) => ({ ...m, online: m.userId ? online.has(m.userId) : false }))
+        );
+      })
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await presence.track({ user_id: user.id });
+        }
+      });
+    return () => { supabase.removeChannel(presence); };
   }, [conversationId, user]);
 
   async function handleSend(content: string) {
@@ -146,6 +171,18 @@ export default function ChatPage() {
     }
   }
 
+  async function handleRenameConversation(newName: string) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const res = await fetch(`/api/conversations/${conversationId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ name: newName }),
+    });
+    const json = await res.json();
+    if (json.success) setConversationName(newName);
+  }
+
   const tokenCount = messages.reduce((sum, m) => {
     const chars = m.segments.reduce((s, seg) => s + (seg.type === "text" ? seg.text.length : 0), 0);
     return sum + Math.ceil(chars / 4);
@@ -153,9 +190,10 @@ export default function ChatPage() {
 
   return (
     <ChatLayout
-      title={conversation?.name ?? "Loading…"}
+      title={conversationName || (conversation?.name ?? "Loading…")}
       projectName={project?.name ?? "Project"}
       projectId={conversation?.project_id}
+      onRenameTitle={conversation ? handleRenameConversation : undefined}
       sidebar={
         <ChatSidebar
           projectName={project?.name ?? "Project"}

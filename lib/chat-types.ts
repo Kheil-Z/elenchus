@@ -17,6 +17,7 @@ export interface ChatMessage {
 }
 
 export interface ChatMember {
+  userId?: string;
   name: string;
   color: UserColor;
   online: boolean;

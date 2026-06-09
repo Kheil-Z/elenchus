@@ -60,6 +60,18 @@ export async function PUT(
     .single();
 
   if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+
+  if (updates.name) {
+    await supabaseAdmin.from("activity_log").insert({
+      project_id: projectId,
+      user_id: user.id,
+      action: "renamed_project",
+      target_type: "project",
+      target_name: updates.name,
+      target_id: projectId,
+    } as never);
+  }
+
   return NextResponse.json({ success: true, project: data });
 }
 

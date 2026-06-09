@@ -69,5 +69,14 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  await supabaseAdmin.from("activity_log").insert({
+    project_id: project.id,
+    user_id: user.id,
+    action: "created_project",
+    target_type: "project",
+    target_name: project.name,
+    target_id: project.id,
+  } as never);
+
   return NextResponse.json({ success: true, projectId: project.id });
 }

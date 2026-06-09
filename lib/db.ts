@@ -443,3 +443,45 @@ export const updateUserProfile = async (
     return { data: null, error: String(err) };
   }
 };
+
+export type MemberPreview = { userId: string; name: string; color: string };
+
+export const getProjectMemberPreviews = async (
+  projectIds: string[]
+): Promise<Map<string, MemberPreview[]>> => {
+  const map = new Map<string, MemberPreview[]>();
+  if (projectIds.length === 0) return map;
+  try {
+    const { data } = await supabase
+      .from("project_members")
+      .select("project_id, user_id, user:users(display_name, color)")
+      .in("project_id", projectIds);
+    (data ?? []).forEach((row) => {
+      const r = row as unknown as { project_id: string; user_id: string; user: { display_name: string; color: string } };
+      const list = map.get(r.project_id) ?? [];
+      list.push({ userId: r.user_id, name: r.user.display_name, color: r.user.color });
+      map.set(r.project_id, list);
+    });
+  } catch { /* best-effort */ }
+  return map;
+};
+
+export const getConversationMemberPreviews = async (
+  conversationIds: string[]
+): Promise<Map<string, MemberPreview[]>> => {
+  const map = new Map<string, MemberPreview[]>();
+  if (conversationIds.length === 0) return map;
+  try {
+    const { data } = await supabase
+      .from("conversation_members")
+      .select("conversation_id, user_id, user:users(display_name, color)")
+      .in("conversation_id", conversationIds);
+    (data ?? []).forEach((row) => {
+      const r = row as unknown as { conversation_id: string; user_id: string; user: { display_name: string; color: string } };
+      const list = map.get(r.conversation_id) ?? [];
+      list.push({ userId: r.user_id, name: r.user.display_name, color: r.user.color });
+      map.set(r.conversation_id, list);
+    });
+  } catch { /* best-effort */ }
+  return map;
+};

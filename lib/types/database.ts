@@ -70,6 +70,34 @@ export interface Message {
   created_at: string;
 }
 
+export interface Document {
+  id: string;
+  project_id: string;
+  name: string;
+  storage_path: string;
+  size_bytes: number;
+  mime_type: string | null;
+  uploaded_by: string;
+  created_at: string;
+}
+
+export interface ActivityLog {
+  id: string;
+  project_id: string;
+  user_id: string | null;
+  action: string;
+  target_type: string | null;
+  target_name: string | null;
+  target_id: string | null;
+  created_at: string;
+}
+
+export interface ProjectMemberState {
+  project_id: string;
+  user_id: string;
+  last_seen_at: string;
+}
+
 // ─── Supabase Database shape (used to type the Supabase client) ───────────────
 
 export type Database = {
