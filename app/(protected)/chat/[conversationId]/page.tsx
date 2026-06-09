@@ -1,11 +1,14 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { ChatLayout } from "@/components/chat/ChatLayout";
 import { MessageList } from "@/components/chat/MessageList";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { InputBar } from "@/components/chat/InputBar";
 import { ChatFooter } from "@/components/chat/ChatFooter";
 import { useAuth } from "@/lib/auth-context";
+import { getApiKeyStatus } from "@/lib/api-key";
+import type { ApiKeyStatus } from "@/lib/api-key";
 import type { ChatMessage, ChatMember, ChatDocument } from "@/lib/chat-types";
 import type { UserColor } from "@/lib/types";
 
@@ -112,6 +115,9 @@ export default function ChatPage() {
   const { profile, user } = useAuth();
   const currentUserName = profile?.display_name ?? user?.email ?? "";
   const currentUserColor = (profile?.color as UserColor) ?? "blue";
+  const [apiKeyStatus, setApiKeyStatus] = useState<ApiKeyStatus | "loading">("loading");
+
+  useEffect(() => { getApiKeyStatus().then(setApiKeyStatus); }, []);
 
   return (
     <ChatLayout
@@ -128,8 +134,8 @@ export default function ChatPage() {
       }
     >
       <MessageList messages={MESSAGES} currentUserName={currentUserName} />
-      <InputBar currentUser={{ name: currentUserName, color: currentUserColor }} members={MEMBERS} />
-      <ChatFooter tokenCount={2653} model="claude-sonnet-4-6" apiKeySet={true} />
+      <InputBar currentUser={{ name: currentUserName, color: currentUserColor }} members={MEMBERS} apiKeyStatus={apiKeyStatus === "loading" ? undefined : apiKeyStatus} />
+      <ChatFooter tokenCount={2653} model="claude-sonnet-4-6" apiKeySet={apiKeyStatus === "active"} />
     </ChatLayout>
   );
 }

@@ -8,12 +8,17 @@ import type { ApiKeyStatus } from "@/lib/api-key";
 export default function SettingsPage() {
   const [keyInput, setKeyInput] = useState("");
   const [status, setStatus] = useState<ApiKeyStatus | "loading">("loading");
+  const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [revoking, setRevoking] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   useEffect(() => {
-    getApiKeyStatus().then(setStatus);
+    getApiKeyStatus().then((s) => {
+      setStatus(s);
+      // Auto-open the edit form if no key is set
+      if (s === "not_set" || s === "error") setIsEditing(true);
+    });
   }, []);
 
   function clearFeedback() {
@@ -30,7 +35,8 @@ export default function SettingsPage() {
     } else {
       setStatus("active");
       setKeyInput("");
-      setFeedback({ type: "success", message: "API key saved successfully." });
+      setIsEditing(false);
+      setFeedback({ type: "success", message: "API key saved." });
     }
   }
 
@@ -43,6 +49,7 @@ export default function SettingsPage() {
       setFeedback({ type: "error", message: error });
     } else {
       setStatus("not_set");
+      setIsEditing(true);
       setFeedback({ type: "success", message: "API key revoked." });
     }
   }
@@ -67,62 +74,100 @@ export default function SettingsPage() {
               </p>
             </div>
 
-            {/* Status row */}
-            <div className="px-6 py-4 flex items-center gap-3">
-              <span className="text-sm text-muted w-16 shrink-0">Status</span>
-              {status === "loading" ? (
-                <span className="text-sm text-muted">Checking…</span>
-              ) : (
-                <StatusBadge status={status} />
-              )}
-            </div>
-
-            {/* Input + save */}
-            <div className="px-6 py-5 flex flex-col gap-3">
-              <label htmlFor="api-key-input" className="text-sm font-medium text-foreground">
-                {hasKey ? "Replace API key" : "Add API key"}
-              </label>
-              <input
-                id="api-key-input"
-                type="password"
-                value={keyInput}
-                onChange={(e) => { setKeyInput(e.target.value); clearFeedback(); }}
-                placeholder="sk-ant-..."
-                autoComplete="off"
-                spellCheck={false}
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-foreground/20 font-mono"
-              />
-
-              {feedback && (
-                <p
-                  className={`text-sm ${
-                    feedback.type === "success" ? "text-green-700" : "text-red-600"
-                  }`}
-                >
-                  {feedback.message}
-                </p>
-              )}
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleSave}
-                  disabled={saving || !keyInput.trim()}
-                  className="text-sm font-medium bg-foreground text-surface px-4 py-2 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {saving ? "Saving…" : "Save API Key"}
-                </button>
-
-                {hasKey && (
-                  <button
-                    onClick={handleRevoke}
-                    disabled={revoking}
-                    className="text-sm text-red-600 border border-red-200 px-4 py-2 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {revoking ? "Revoking…" : "Revoke API Key"}
-                  </button>
+            {/* Status + key display */}
+            <div className="px-6 py-4 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-muted w-16 shrink-0">Status</span>
+                {status === "loading" ? (
+                  <span className="text-sm text-muted">Checking…</span>
+                ) : (
+                  <StatusBadge status={status} />
                 )}
               </div>
+
+              {/* When key is set and not editing, show Update button */}
+              {hasKey && !isEditing && (
+                <button
+                  onClick={() => { setIsEditing(true); clearFeedback(); }}
+                  className="text-xs text-muted border border-border px-3 py-1.5 rounded-lg hover:text-foreground hover:border-foreground/30 transition-colors"
+                >
+                  Update key
+                </button>
+              )}
             </div>
+
+            {/* Edit form — shown when editing or no key set */}
+            {(isEditing || !hasKey) && status !== "loading" && (
+              <div className="px-6 py-5 flex flex-col gap-3">
+                <label htmlFor="api-key-input" className="text-sm font-medium text-foreground">
+                  {hasKey ? "Replace API key" : "Add API key"}
+                </label>
+                <input
+                  id="api-key-input"
+                  type="password"
+                  value={keyInput}
+                  onChange={(e) => { setKeyInput(e.target.value); clearFeedback(); }}
+                  placeholder="sk-ant-..."
+                  autoComplete="off"
+                  spellCheck={false}
+                  autoFocus={isEditing && hasKey}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-foreground/20 font-mono"
+                />
+
+                {feedback && (
+                  <p className={`text-sm ${feedback.type === "success" ? "text-green-700" : "text-red-600"}`}>
+                    {feedback.message}
+                  </p>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleSave}
+                    disabled={saving || !keyInput.trim()}
+                    className="text-sm font-medium bg-foreground text-surface px-4 py-2 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {saving ? "Saving…" : "Save API Key"}
+                  </button>
+
+                  {hasKey && isEditing && (
+                    <button
+                      onClick={() => { setIsEditing(false); setKeyInput(""); clearFeedback(); }}
+                      className="text-sm text-muted px-4 py-2 rounded-lg hover:text-foreground transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Success feedback shown outside the form (after save) */}
+            {!isEditing && hasKey && feedback && (
+              <div className="px-6 py-3">
+                <p className={`text-sm ${feedback.type === "success" ? "text-green-700" : "text-red-600"}`}>
+                  {feedback.message}
+                </p>
+              </div>
+            )}
+
+            {/* Revoke — only when key is active */}
+            {hasKey && (
+              <div className="px-6 py-4 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Revoke API key</p>
+                  <p className="text-xs text-muted mt-0.5">
+                    Removes your key from the server. Claude calls will stop working.
+                  </p>
+                </div>
+                <button
+                  onClick={handleRevoke}
+                  disabled={revoking}
+                  className="text-sm text-red-600 border border-red-200 px-4 py-2 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                >
+                  {revoking ? "Revoking…" : "Revoke"}
+                </button>
+              </div>
+            )}
 
             {/* Info box */}
             <div className="px-6 py-5">
@@ -132,7 +177,7 @@ export default function SettingsPage() {
                 </p>
                 <ul className="text-sm text-muted space-y-1.5">
                   <li className="flex items-start gap-2">
-                    <span className="mt-1 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
+                    <span className="mt-1.5 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
                     Get your key from{" "}
                     <a
                       href="https://console.anthropic.com/settings/keys"
@@ -144,15 +189,15 @@ export default function SettingsPage() {
                     </a>
                   </li>
                   <li className="flex items-start gap-2">
-                    <span className="mt-1 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
+                    <span className="mt-1.5 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
                     Encrypted and stored server-side — never in your browser
                   </li>
                   <li className="flex items-start gap-2">
-                    <span className="mt-1 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
+                    <span className="mt-1.5 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
                     Only used when you trigger a Claude response in a conversation
                   </li>
                   <li className="flex items-start gap-2">
-                    <span className="mt-1 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
+                    <span className="mt-1.5 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
                     You can revoke it from this page at any time
                   </li>
                 </ul>
@@ -170,7 +215,7 @@ function StatusBadge({ status }: { status: ApiKeyStatus }) {
     return (
       <span className="inline-flex items-center gap-1.5 text-sm text-green-700">
         <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-        Active
+        API key set
       </span>
     );
   }

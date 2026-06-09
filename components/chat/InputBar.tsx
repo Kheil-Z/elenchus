@@ -20,9 +20,10 @@ interface Member {
 interface InputBarProps {
   currentUser: { name: string; color: UserColor };
   members?: Member[];
+  apiKeyStatus?: "active" | "not_set" | "error";
 }
 
-export function InputBar({ currentUser, members = [] }: InputBarProps) {
+export function InputBar({ currentUser, members = [], apiKeyStatus }: InputBarProps) {
   const [value, setValue] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [delegateOpen, setDelegateOpen] = useState(false);
@@ -94,9 +95,23 @@ export function InputBar({ currentUser, members = [] }: InputBarProps) {
 
       {/* Claude mention hint */}
       {hasClaudeMention && !selectedDelegate && (
-        <div className="mb-2 flex items-center gap-1.5 text-xs text-muted">
-          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block shrink-0" />
-          Claude will respond using your API key
+        <div className="mb-2 flex items-center gap-1.5 text-xs">
+          {apiKeyStatus === "not_set" || apiKeyStatus === "error" ? (
+            <>
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block shrink-0" />
+              <span className="text-amber-700">
+                No API key set —{" "}
+                <a href="/settings" className="underline underline-offset-2 hover:opacity-70 transition-opacity">
+                  add one in settings
+                </a>
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block shrink-0" />
+              <span className="text-muted">API key set · Claude will respond using your key</span>
+            </>
+          )}
         </div>
       )}
 

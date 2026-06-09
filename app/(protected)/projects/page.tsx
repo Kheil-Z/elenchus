@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LeftNav } from "@/components/LeftNav";
 import { Avatar } from "@/components/Avatar";
 import { useAuth } from "@/lib/auth-context";
+import { getApiKeyStatus } from "@/lib/api-key";
+import type { ApiKeyStatus } from "@/lib/api-key";
 import type { UserColor } from "@/lib/types";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -270,6 +272,9 @@ export default function ProjectsPage() {
   const { profile, user, logout } = useAuth();
   const router = useRouter();
   const [navOpen, setNavOpen] = useState(true);
+  const [apiKeyStatus, setApiKeyStatus] = useState<ApiKeyStatus | "loading">("loading");
+
+  useEffect(() => { getApiKeyStatus().then(setApiKeyStatus); }, []);
 
   const displayName = profile?.display_name ?? user?.email ?? "";
   const displayEmail = user?.email ?? "";
@@ -395,16 +400,27 @@ export default function ProjectsPage() {
             </div>
 
             {/* API key status */}
-            <div
-              className="flex items-center gap-2 px-3 py-2 rounded-lg border text-xs"
+            <Link
+              href="/settings"
+              className="flex items-center gap-2 px-3 py-2 rounded-lg border text-xs hover:border-foreground/20 transition-colors"
               style={{ backgroundColor: "var(--color-background)", borderColor: "var(--color-border)" }}
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" />
-              <span className="text-muted flex-1 truncate">API key set</span>
-              <button className="text-muted hover:text-foreground transition-colors shrink-0 font-medium">
-                Edit
-              </button>
-            </div>
+              <span
+                className="w-1.5 h-1.5 rounded-full shrink-0"
+                style={{
+                  backgroundColor:
+                    apiKeyStatus === "active" ? "#22C55E" :
+                    apiKeyStatus === "loading" ? "var(--color-border)" :
+                    "#F87171",
+                }}
+              />
+              <span className="text-muted flex-1 truncate">
+                {apiKeyStatus === "loading" ? "Checking key…" :
+                 apiKeyStatus === "active"  ? "API key set" :
+                                              "No API key set"}
+              </span>
+              <span className="text-muted font-medium shrink-0">Edit</span>
+            </Link>
 
             {/* Usage summary */}
             <div>

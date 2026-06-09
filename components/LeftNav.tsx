@@ -1,8 +1,10 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { getApiKeyStatus } from "@/lib/api-key";
 import { Avatar } from "@/components/Avatar";
 import type { UserColor } from "@/lib/types";
 
@@ -19,6 +21,9 @@ const JOINED_PROJECTS = [
 export function LeftNav({ activeProjectId }: { activeProjectId?: string }) {
   const { profile, logout } = useAuth();
   const router = useRouter();
+  const [apiKeyStatus, setApiKeyStatus] = useState<"active" | "not_set" | "error" | "loading">("loading");
+
+  useEffect(() => { getApiKeyStatus().then(setApiKeyStatus); }, []);
 
   async function handleLogout() {
     await logout();
@@ -103,6 +108,28 @@ export function LeftNav({ activeProjectId }: { activeProjectId?: string }) {
             <span className="text-sm text-foreground truncate flex-1">{profile.display_name}</span>
           </div>
         )}
+        {/* API key status */}
+        <Link
+          href="/settings"
+          className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs hover:bg-background transition-colors w-full"
+        >
+          <span
+            className="w-1.5 h-1.5 rounded-full shrink-0"
+            style={{
+              backgroundColor:
+                apiKeyStatus === "active"  ? "#22C55E" :
+                apiKeyStatus === "loading" ? "var(--color-border)" :
+                                             "#F87171",
+            }}
+          />
+          <span className="flex-1 truncate" style={{ color: apiKeyStatus === "active" ? "var(--color-muted)" : "#B45309" }}>
+            {apiKeyStatus === "active" ? "API key set" : apiKeyStatus === "loading" ? "Checking key…" : "No API key set"}
+          </span>
+          {apiKeyStatus !== "active" && apiKeyStatus !== "loading" && (
+            <span className="text-amber-700 font-medium shrink-0">Set</span>
+          )}
+        </Link>
+
         <Link
           href="/settings"
           className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-muted hover:text-foreground hover:bg-background transition-colors w-full"
