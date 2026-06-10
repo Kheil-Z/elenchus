@@ -30,6 +30,7 @@ export async function GET(
     .select("user_id")
     .eq("project_id", projectId)
     .eq("user_id", user.id)
+    .eq("status", "active")
     .single();
 
   if (!memberData) return NextResponse.json({ success: false, error: "Not a project member" }, { status: 403 });

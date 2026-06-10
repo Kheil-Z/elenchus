@@ -32,12 +32,13 @@ export async function POST(
   const { email } = body;
   if (!email?.trim()) return NextResponse.json({ success: false, error: "Email is required" }, { status: 400 });
 
-  // Caller must be a can_edit member
+  // Caller must be an active can_edit member
   const { data: callerData } = await supabaseAdmin
     .from("project_members")
     .select("role")
     .eq("project_id", projectId)
     .eq("user_id", user.id)
+    .eq("status", "active")
     .single();
 
   const caller = callerData as unknown as { role: string } | null;
@@ -60,22 +61,27 @@ export async function POST(
     );
   }
 
-  // Check not already a member
+  // Check not already a member or already invited
   const { data: existing } = await supabaseAdmin
     .from("project_members")
-    .select("id")
+    .select("id, status")
     .eq("project_id", projectId)
     .eq("user_id", invitee.id)
     .single();
 
   if (existing) {
-    return NextResponse.json({ success: false, error: "This person is already a member." }, { status: 409 });
+    const row = existing as unknown as { status: string };
+    const msg = row.status === "pending" ? "This person has already been invited." : "This person is already a member.";
+    return NextResponse.json({ success: false, error: msg }, { status: 409 });
   }
 
-  // Add to project_members
+  const inviterProfile = await supabaseAdmin.from("users").select("display_name").eq("id", user.id).single();
+  const inviterName = (inviterProfile.data as unknown as { display_name: string } | null)?.display_name ?? "Someone";
+
+  // Create pending invitation
   const { error: insertError } = await supabaseAdmin
     .from("project_members")
-    .insert({ project_id: projectId, user_id: invitee.id, role: "can_use" } as never);
+    .insert({ project_id: projectId, user_id: invitee.id, role: "can_use", status: "pending", invited_by_name: inviterName } as never);
 
   if (insertError) {
     return NextResponse.json({ success: false, error: insertError.message }, { status: 500 });
@@ -113,6 +119,7 @@ export async function DELETE(
       .select("role")
       .eq("project_id", projectId)
       .eq("user_id", user.id)
+      .eq("status", "active")
       .single();
 
     const caller = callerData as unknown as { role: string } | null;

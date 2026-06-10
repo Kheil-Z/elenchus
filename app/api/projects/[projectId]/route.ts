@@ -36,6 +36,7 @@ export async function PUT(
     .select("role")
     .eq("project_id", projectId)
     .eq("user_id", user.id)
+    .eq("status", "active")
     .single();
 
   const member = memberData as unknown as { role: string } | null;

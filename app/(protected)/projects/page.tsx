@@ -38,7 +38,7 @@ async function getToken(): Promise<string | null> {
 
 // ── Shared emoji options ──────────────────────────────────────────────────────
 
-const EMOJI_OPTIONS = ["📁", "🗂️", "💼", "🚀", "💡", "🔬", "📝", "🎯", "⚡", "🌱", "🏗️", "🎨", "📊", "🔒", "🤝", "🧪"];
+const EMOJI_OPTIONS = ["📁", "🗂️", "💼", "🚀", "💡", "🔬", "📝", "🎯", "⚡", "🌱", "🏗️", "🎨", "📊", "🔒", "🤝", "🧪", "🌍", "🧠", "🎓", "🏆", "🔮", "🧩", "📡", "🛸", "🎪", "🌊", "🔥", "💎"];
 
 // ── Rename modal ──────────────────────────────────────────────────────────────
 
@@ -268,12 +268,14 @@ function ProjectCard({
   members = [],
   onRename,
   onDelete,
+  onLeave,
   isOwner = true,
 }: {
   project: Project;
   members?: MemberPreview[];
   onRename: (p: Project) => void;
   onDelete: (p: Project) => void;
+  onLeave: (p: Project) => void;
   isOwner?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -329,16 +331,18 @@ function ProjectCard({
 
         {menuOpen && (
           <div className="absolute top-full right-0 mt-1 w-36 bg-surface border border-border rounded-xl shadow-lg overflow-hidden z-20">
-            <button
-              onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onRename(project); }}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-foreground hover:bg-background transition-colors text-left"
-            >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <path d="M8.5 1.5l2 2L4 10H2V8L8.5 1.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-              </svg>
-              Rename
-            </button>
             {isOwner && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onRename(project); }}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-foreground hover:bg-background transition-colors text-left"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M8.5 1.5l2 2L4 10H2V8L8.5 1.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                </svg>
+                Rename
+              </button>
+            )}
+            {isOwner ? (
               <button
                 onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onDelete(project); }}
                 className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors text-left border-t border-border"
@@ -348,9 +352,163 @@ function ProjectCard({
                 </svg>
                 Delete
               </button>
+            ) : (
+              <button
+                onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onLeave(project); }}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors text-left"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M8 2H10.5A1.5 1.5 0 0 1 12 3.5V8.5A1.5 1.5 0 0 1 10.5 10H8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+                  <path d="M5 4L2 6L5 8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+                  <line x1="2" y1="6" x2="9" y2="6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+                </svg>
+                Leave
+              </button>
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Invitation card ───────────────────────────────────────────────────────────
+
+interface Invitation {
+  id: string;
+  projectId: string;
+  invitedByName: string | null;
+  createdAt: string;
+  project: { id: string; name: string; description: string | null; emoji: string | null; created_at: string } | null;
+}
+
+function InvitationCard({
+  invite,
+  onAccept,
+  onDecline,
+}: {
+  invite: Invitation;
+  onAccept: (projectId: string) => Promise<void>;
+  onDecline: (projectId: string) => Promise<void>;
+}) {
+  const [loading, setLoading] = useState<"accept" | "decline" | null>(null);
+
+  async function handle(action: "accept" | "decline") {
+    setLoading(action);
+    if (action === "accept") await onAccept(invite.projectId);
+    else await onDecline(invite.projectId);
+    setLoading(null);
+  }
+
+  const p = invite.project;
+  return (
+    <div className="bg-surface border border-border rounded-xl p-5 flex items-start gap-4">
+      <span className="text-2xl leading-none mt-0.5 shrink-0">{p?.emoji ?? "📁"}</span>
+      <div className="flex-1 min-w-0">
+        <p className="font-medium text-foreground text-sm truncate">{p?.name ?? "Unknown project"}</p>
+        {p?.description && (
+          <p className="text-xs text-muted mt-0.5 line-clamp-1">{p.description}</p>
+        )}
+        <p className="text-xs text-muted mt-1">
+          {invite.invitedByName ? `Invited by ${invite.invitedByName}` : "You've been invited"}
+          {" · "}
+          {formatRelative(invite.createdAt)}
+        </p>
+        <div className="flex gap-2 mt-3">
+          <button
+            onClick={() => handle("accept")}
+            disabled={loading !== null}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium text-surface transition-all disabled:opacity-50"
+            style={{ backgroundColor: "var(--color-foreground)" }}
+          >
+            {loading === "accept" ? "Accepting…" : "Accept"}
+          </button>
+          <button
+            onClick={() => handle("decline")}
+            disabled={loading !== null}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium text-muted border border-border hover:bg-background transition-colors disabled:opacity-50"
+          >
+            {loading === "decline" ? "Declining…" : "Decline"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Leave confirmation modal ──────────────────────────────────────────────────
+
+function LeaveModal({
+  project,
+  currentUserId,
+  onClose,
+  onLeft,
+}: {
+  project: Project;
+  currentUserId: string;
+  onClose: () => void;
+  onLeft: (id: string) => void;
+}) {
+  const [leaving, setLeaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  async function handleLeave() {
+    if (leaving) return;
+    setLeaving(true);
+    setError(null);
+    const token = await getToken();
+    if (!token) { setError("Not authenticated"); setLeaving(false); return; }
+    try {
+      const res = await fetch(`/api/projects/${project.id}/members?userId=${encodeURIComponent(currentUserId)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (!json.success) { setError(json.error ?? "Failed to leave"); setLeaving(false); return; }
+      onLeft(project.id);
+      onClose();
+    } catch {
+      setError("Network error — please try again");
+      setLeaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ backgroundColor: "rgba(0,0,0,0.25)" }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="bg-surface border border-border rounded-2xl shadow-xl w-full max-w-sm mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="px-6 pt-6 pb-2">
+          <h2 className="font-serif text-lg text-foreground tracking-tight">Leave project</h2>
+        </div>
+        <div className="px-6 pb-6 flex flex-col gap-4">
+          <p className="text-sm text-muted leading-relaxed">
+            You&apos;ll lose access to <span className="font-medium text-foreground">{project.name}</span> and all its conversations. The project owner can re-invite you later.
+          </p>
+          {error && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>
+          )}
+          <div className="flex gap-2">
+            <button onClick={onClose} className="flex-1 text-sm text-muted border border-border rounded-xl py-2.5 hover:bg-background transition-colors">
+              Cancel
+            </button>
+            <button
+              onClick={handleLeave}
+              disabled={leaving}
+              className="flex-1 text-sm font-medium text-white rounded-xl py-2.5 bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50"
+            >
+              {leaving ? "Leaving…" : "Leave project"}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -439,11 +597,27 @@ export default function ProjectsPage() {
   const [projectsVersion, setProjectsVersion] = useState(0);
   const [memberPreviews, setMemberPreviews] = useState<Map<string, MemberPreview[]>>(new Map());
 
-  // Rename / delete state
+  // Rename / delete / leave state
   const [renamingProject, setRenamingProject] = useState<Project | null>(null);
   const [deletingProject, setDeletingProject] = useState<Project | null>(null);
+  const [leavingProject, setLeavingProject] = useState<Project | null>(null);
+  const [invitations, setInvitations] = useState<Invitation[]>([]);
 
   useEffect(() => { getApiKeyStatus().then(setApiKeyStatus); }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    async function loadInvitations() {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const res = await fetch("/api/invitations", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (json.success) setInvitations(json.invitations ?? []);
+    }
+    loadInvitations();
+  }, [user, projectsVersion]);
 
   useEffect(() => {
     if (!user) return;
@@ -513,6 +687,34 @@ export default function ProjectsPage() {
     setRecentChats((prev) => prev.filter((c) => c.projectId !== id));
   }
 
+  function handleLeft(id: string) {
+    setJoinedProjects((prev) => prev.filter((p) => p.id !== id));
+    setRecentChats((prev) => prev.filter((c) => c.projectId !== id));
+  }
+
+  async function handleAcceptInvite(projectId: string) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    await fetch(`/api/invitations/${projectId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "accept" }),
+    });
+    setInvitations((prev) => prev.filter((i) => i.projectId !== projectId));
+    setProjectsVersion((v) => v + 1);
+  }
+
+  async function handleDeclineInvite(projectId: string) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    await fetch(`/api/invitations/${projectId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "decline" }),
+    });
+    setInvitations((prev) => prev.filter((i) => i.projectId !== projectId));
+  }
+
   const displayName = profile?.display_name ?? user?.email ?? "";
   const displayEmail = user?.email ?? "";
   const displayColor = (profile?.color as UserColor) ?? "blue";
@@ -541,6 +743,14 @@ export default function ProjectsPage() {
           project={deletingProject}
           onClose={() => setDeletingProject(null)}
           onDeleted={handleDeleted}
+        />
+      )}
+      {leavingProject && user && (
+        <LeaveModal
+          project={leavingProject}
+          currentUserId={user.id}
+          onClose={() => setLeavingProject(null)}
+          onLeft={handleLeft}
         />
       )}
 
@@ -586,6 +796,22 @@ export default function ProjectsPage() {
           <div className="flex-1 overflow-y-auto">
             <div className="px-8 py-8 max-w-3xl mx-auto space-y-10">
 
+              {invitations.length > 0 && (
+                <section>
+                  <p className="text-sm font-semibold text-foreground mb-4">Invitations</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    {invitations.map((invite) => (
+                      <InvitationCard
+                        key={invite.id}
+                        invite={invite}
+                        onAccept={handleAcceptInvite}
+                        onDecline={handleDeclineInvite}
+                      />
+                    ))}
+                  </div>
+                </section>
+              )}
+
               <section>
                 <p className="text-sm font-semibold text-foreground mb-4">My projects</p>
                 {projectsLoading ? (
@@ -600,6 +826,7 @@ export default function ProjectsPage() {
                         isOwner
                         onRename={setRenamingProject}
                         onDelete={setDeletingProject}
+                        onLeave={setLeavingProject}
                       />
                     ))}
                     <button
@@ -627,6 +854,7 @@ export default function ProjectsPage() {
                         isOwner={false}
                         onRename={setRenamingProject}
                         onDelete={setDeletingProject}
+                        onLeave={setLeavingProject}
                       />
                     ))}
                   </div>

@@ -32,6 +32,7 @@ async function isProjectMember(projectId: string, userId: string): Promise<boole
     .select("id")
     .eq("project_id", projectId)
     .eq("user_id", userId)
+    .eq("status", "active")
     .maybeSingle();
   return data !== null;
 }
@@ -136,29 +137,34 @@ export async function POST(req: NextRequest) {
 
   // ── 7. Build messages for Claude (history + new user message) ────────────
   const displayName = profile.display_name ?? user.email ?? "User";
-  const sanitizedName = displayName.trim().replace(/[^a-zA-Z0-9_]/g, "_").slice(0, 64);
 
-  const formattedMessages = [
-    ...formatMessagesForClaude(history),
-    { role: "user" as const, content: message.trim(), name: sanitizedName },
+  // Include the incoming message as a fake history entry so formatMessagesForClaude
+  // can merge it with any trailing user messages from history (Anthropic requires
+  // strict alternation; multiple real-user messages between @claude calls are common).
+  const allMessages = [
+    ...history,
+    {
+      id: "pending",
+      conversation_id: conversationId,
+      role: "user" as const,
+      content: message.trim(),
+      author_display_name: displayName,
+      author_user_id: user.id,
+      caller_user_id: user.id,
+      payer_user_id: null,
+      model_used: null,
+      input_tokens: 0,
+      output_tokens: 0,
+      created_at: new Date().toISOString(),
+    },
   ];
 
-  // ── 8. Build system blocks with prompt caching ───────────────────────────
-  const systemBlocks: Array<{
-    type: "text";
-    text: string;
-    cache_control?: { type: "ephemeral" };
-  }> = [
-    { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
-  ];
+  const formattedMessages = formatMessagesForClaude(allMessages);
 
-  if (projectDocsContent) {
-    systemBlocks.push({
-      type: "text",
-      text: `[Project Documents]\n${projectDocsContent}`,
-      cache_control: { type: "ephemeral" },
-    });
-  }
+  // ── 8. Build system prompt ───────────────────────────────────────────────
+  const systemPrompt = projectDocsContent
+    ? `${SYSTEM_PROMPT}\n\n[Project Documents]\n${projectDocsContent}`
+    : SYSTEM_PROMPT;
 
   // ── 9. Call Claude API ───────────────────────────────────────────────────
   let claudeData: {
@@ -173,12 +179,11 @@ export async function POST(req: NextRequest) {
         "Content-Type": "application/json",
         "x-api-key": userApiKey,
         "anthropic-version": ANTHROPIC_VERSION,
-        "anthropic-beta": "prompt-caching-2024-07-31",
       },
       body: JSON.stringify({
         model,
         max_tokens: 4096,
-        system: systemBlocks,
+        system: systemPrompt,
         messages: formattedMessages,
       }),
     });
@@ -186,11 +191,12 @@ export async function POST(req: NextRequest) {
     const body = await response.json();
 
     if (!response.ok) {
-      console.error("Anthropic API error:", body);
+      const anthropicMsg: string = body?.error?.message ?? `Anthropic ${response.status}`;
+      console.error("Anthropic API error:", response.status, body);
       if (response.status === 401) return err("Update your API key in account settings", 400);
-      if (response.status === 402) return err("Your API key has no remaining credits", 402);
+      if (response.status === 402 || anthropicMsg.toLowerCase().includes("credit")) return err("Your API key has no remaining credits — add credits at console.anthropic.com", 402);
       if (response.status === 429) return err("You've hit your API rate limit — try again in a moment", 429);
-      return err("Claude request failed — try again", 500);
+      return err(`Claude request failed: ${anthropicMsg}`, 500);
     }
 
     claudeData = body;

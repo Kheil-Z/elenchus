@@ -203,11 +203,24 @@ interface MessageListProps {
   currentUserName?: string;
   loading?: boolean;
   sending?: boolean;
+  mentionsOnly?: boolean;
 }
 
-export function MessageList({ messages, currentUserName, loading, sending }: MessageListProps) {
+function messageContainsMention(msg: ChatMessage, name: string): boolean {
+  const lower = name.toLowerCase();
+  return msg.segments.some(
+    (seg) => seg.type === "text" && seg.text.toLowerCase().includes(`@${lower}`)
+  );
+}
+
+export function MessageList({ messages, currentUserName, loading, sending, mentionsOnly }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [docPreview, setDocPreview] = useState<DocPreviewArg | null>(null);
+
+  const visibleMessages =
+    mentionsOnly && currentUserName
+      ? messages.filter((m) => messageContainsMention(m, currentUserName))
+      : messages;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -236,7 +249,10 @@ export function MessageList({ messages, currentUserName, loading, sending }: Mes
     )}
     <div className="flex-1 overflow-y-auto">
       <div className="flex flex-col gap-6 px-6 py-6 max-w-3xl mx-auto">
-        {messages.map((msg) => (
+        {mentionsOnly && visibleMessages.length === 0 && !sending && (
+          <p className="text-sm text-muted text-center py-8">No messages mentioning you yet.</p>
+        )}
+        {visibleMessages.map((msg) => (
           <MessageBubble key={msg.id} msg={msg} isYou={msg.authorName === currentUserName} onDocPreview={setDocPreview} />
         ))}
         {sending && (

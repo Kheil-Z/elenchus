@@ -71,6 +71,7 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [awaitingClaude, setAwaitingClaude] = useState(false);
+  const [mentionsOnly, setMentionsOnly] = useState(false);
   const [apiKeyStatus, setApiKeyStatus] = useState<ApiKeyStatus | "loading">("loading");
   const colorMapRef = useRef<Map<string, UserColor>>(new Map());
   const onlineIdsRef = useRef<Set<string>>(new Set());
@@ -132,16 +133,20 @@ export default function ChatPage() {
       if (membersResult.data) {
         const colorMap = new Map<string, UserColor>();
         membersResult.data.forEach((m) => {
-          colorMap.set(m.user_id, (m.user.color as UserColor) ?? "blue");
+          const u = m.user as typeof m.user | null;
+          if (u) colorMap.set(m.user_id, (u.color as UserColor) ?? "blue");
         });
         colorMapRef.current = colorMap;
-        setChatMembers(membersResult.data.map((m) => ({
-          userId: m.user_id,
-          name: m.user.display_name,
-          color: (m.user.color as UserColor) ?? "blue",
-          online: onlineIdsRef.current.has(m.user_id),
-          tokenPct: 0,
-        })));
+        setChatMembers(membersResult.data.map((m) => {
+          const u = m.user as typeof m.user | null;
+          return {
+            userId: m.user_id,
+            name: u?.display_name ?? m.user_id,
+            color: (u?.color as UserColor) ?? "blue",
+            online: onlineIdsRef.current.has(m.user_id),
+            tokenPct: 0,
+          };
+        }));
       }
 
       if (msgResult.data) {
@@ -167,7 +172,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!user) return;
-    const presence = supabase.channel(`presence:${conversationId}`);
+    const presence = supabase.channel("presence:global");
     presence
       .on("presence", { event: "sync" }, () => {
         const state = presence.presenceState<{ user_id: string }>();
@@ -248,7 +253,7 @@ export default function ChatPage() {
 
       const url = isClaudeCall ? "/api/claude" : "/api/messages/send";
       const body = isClaudeCall
-        ? { conversationId, content: fullContent }
+        ? { conversationId, message: fullContent }
         : { conversationId, content: fullContent, authorDisplayName: profile.display_name };
 
       try {
@@ -261,9 +266,12 @@ export default function ChatPage() {
           body: JSON.stringify(body),
         });
         if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          console.error("Send failed:", err);
+          const rawText = await res.text().catch(() => "");
+          let parsed: unknown = {};
+          try { parsed = JSON.parse(rawText); } catch { /* not JSON */ }
+          console.error("Send failed:", res.status, rawText);
           setAwaitingClaude(false);
+          void parsed; // suppress unused warning
         }
       } catch (err) {
         console.error("Send error:", err);
@@ -326,6 +334,8 @@ export default function ChatPage() {
           conversationId={conversationId}
           currentUserName={currentUserName}
           onUploadFile={conversation ? handleUploadDoc : undefined}
+          mentionsOnly={mentionsOnly}
+          onMentionsToggle={() => setMentionsOnly((v) => !v)}
         />
       }
     >
@@ -334,6 +344,7 @@ export default function ChatPage() {
         currentUserName={currentUserName}
         loading={loading}
         sending={awaitingClaude}
+        mentionsOnly={mentionsOnly}
       />
       <InputBar
         currentUser={{ name: currentUserName, color: currentUserColor }}

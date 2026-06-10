@@ -24,11 +24,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function fetchProfile(userId: string) {
     const { data, error } = await supabase
       .from("users")
-      .select("*")
+      .select("id, display_name, color")
       .eq("id", userId)
       .single();
     if (error) console.error("[auth] fetchProfile failed:", error.message);
-    setProfile(data ?? null);
+    setProfile(data as Profile | null);
   }
 
   useEffect(() => {

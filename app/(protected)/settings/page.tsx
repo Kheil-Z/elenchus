@@ -2,10 +2,23 @@
 
 import { useState, useEffect } from "react";
 import { LeftNav } from "@/components/LeftNav";
+import { Avatar } from "@/components/Avatar";
 import { saveApiKey, revokeApiKey, getApiKeyStatus } from "@/lib/api-key";
+import { updateUserProfile } from "@/lib/db";
+import { useAuth } from "@/lib/auth-context";
 import type { ApiKeyStatus } from "@/lib/api-key";
+import type { UserColor } from "@/lib/types";
+
+const COLOR_OPTIONS: { value: UserColor; bg: string; ring: string; label: string }[] = [
+  { value: "blue",   bg: "#DBEAFE", ring: "#1D4ED8", label: "Blue"   },
+  { value: "green",  bg: "#DCFCE7", ring: "#15803D", label: "Green"  },
+  { value: "purple", bg: "#F3E8FF", ring: "#7E22CE", label: "Purple" },
+  { value: "coral",  bg: "#FEE2E2", ring: "#B91C1C", label: "Coral"  },
+  { value: "amber",  bg: "#FEF3C7", ring: "#92400E", label: "Amber"  },
+];
 
 export default function SettingsPage() {
+  const { profile, user } = useAuth();
   const [keyInput, setKeyInput] = useState("");
   const [status, setStatus] = useState<ApiKeyStatus | "loading">("loading");
   const [isEditing, setIsEditing] = useState(false);
@@ -13,13 +26,34 @@ export default function SettingsPage() {
   const [revoking, setRevoking] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
+  const [selectedColor, setSelectedColor] = useState<UserColor>((profile?.color as UserColor) ?? "blue");
+  const [colorSaving, setColorSaving] = useState(false);
+  const [colorFeedback, setColorFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (profile?.color) setSelectedColor(profile.color as UserColor);
+  }, [profile?.color]);
+
   useEffect(() => {
     getApiKeyStatus().then((s) => {
       setStatus(s);
-      // Auto-open the edit form if no key is set
       if (s === "not_set" || s === "error") setIsEditing(true);
     });
   }, []);
+
+  async function handleColorSave() {
+    if (!user || colorSaving) return;
+    setColorSaving(true);
+    setColorFeedback(null);
+    const { error } = await updateUserProfile(user.id, { color: selectedColor });
+    setColorSaving(false);
+    if (error) {
+      setColorFeedback("Failed to save — try again");
+    } else {
+      setColorFeedback("Saved!");
+      setTimeout(() => setColorFeedback(null), 2000);
+    }
+  }
 
   function clearFeedback() {
     setFeedback(null);
@@ -63,6 +97,64 @@ export default function SettingsPage() {
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-8 py-10">
           <h1 className="font-serif text-3xl text-foreground mb-8">Account Settings</h1>
+
+          {/* Profile section */}
+          <section className="bg-surface border border-border rounded-xl divide-y divide-border mb-6">
+            <div className="px-6 py-5">
+              <h2 className="font-medium text-foreground text-base">Profile</h2>
+              <p className="text-sm text-muted mt-0.5">
+                Customize how you appear to other members.
+              </p>
+            </div>
+
+            <div className="px-6 py-5 flex flex-col gap-4">
+              <div className="flex items-center gap-4">
+                <Avatar
+                  name={profile?.display_name ?? user?.email ?? ""}
+                  color={selectedColor}
+                  size="lg"
+                />
+                <div>
+                  <p className="text-sm font-medium text-foreground">
+                    {profile?.display_name ?? user?.email ?? ""}
+                  </p>
+                  <p className="text-xs text-muted mt-0.5">{user?.email}</p>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <p className="text-sm font-medium text-foreground">Avatar colour</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {COLOR_OPTIONS.map((c) => (
+                    <button
+                      key={c.value}
+                      onClick={() => setSelectedColor(c.value)}
+                      title={c.label}
+                      className="w-8 h-8 rounded-full transition-all"
+                      style={{
+                        backgroundColor: c.bg,
+                        outline: selectedColor === c.value ? `2px solid ${c.ring}` : "2px solid transparent",
+                        outlineOffset: "2px",
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleColorSave}
+                  disabled={colorSaving || selectedColor === (profile?.color ?? "blue")}
+                  className="text-sm font-medium bg-foreground text-surface px-4 py-2 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {colorSaving ? "Saving…" : "Save colour"}
+                </button>
+                {colorFeedback && (
+                  <p className="text-sm text-green-700">{colorFeedback}</p>
+                )}
+              </div>
+            </div>
+          </section>
 
           {/* API Keys section */}
           <section className="bg-surface border border-border rounded-xl divide-y divide-border">

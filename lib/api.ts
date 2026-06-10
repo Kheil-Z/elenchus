@@ -12,22 +12,26 @@ const SYSTEM_PROMPT =
 // ─── Format helpers ───────────────────────────────────────────────────────────
 
 export const formatMessagesForClaude = (messages: Message[]): ClaudeMessage[] => {
-  return messages.map((msg) => {
-    const formatted: ClaudeMessage = {
-      role: msg.role,
-      content: msg.content,
-    };
-    // Attach author name for user messages so Claude can reference contributors by name.
-    // assistant messages have no author_display_name.
-    if (msg.role === "user" && msg.author_display_name) {
-      // Anthropic name field: alphanumeric + underscore only, max 64 chars
-      formatted.name = msg.author_display_name
-        .trim()
-        .replace(/[^a-zA-Z0-9_]/g, "_")
-        .slice(0, 64);
+  // Anthropic requires strict user/assistant alternation.
+  // Merge consecutive same-role messages into one, prefixing each part with the author name.
+  const merged: ClaudeMessage[] = [];
+
+  for (const msg of messages) {
+    const authorPrefix =
+      msg.role === "user" && msg.author_display_name
+        ? `[${msg.author_display_name}]: `
+        : "";
+    const text = `${authorPrefix}${msg.content}`;
+
+    const last = merged[merged.length - 1];
+    if (last && last.role === msg.role) {
+      last.content = `${last.content}\n\n${text}`;
+    } else {
+      merged.push({ role: msg.role, content: text });
     }
-    return formatted;
-  });
+  }
+
+  return merged;
 };
 
 // Rough estimate: ~4 characters per token (good enough for budget warnings).

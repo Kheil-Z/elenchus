@@ -46,6 +46,7 @@ export async function DELETE(
       .select("role")
       .eq("project_id", d.project_id)
       .eq("user_id", user.id)
+      .eq("status", "active")
       .single();
 
     const role = (member as unknown as { role: string } | null)?.role;

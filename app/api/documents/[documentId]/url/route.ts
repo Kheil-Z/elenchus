@@ -44,6 +44,7 @@ export async function GET(
     .select("user_id")
     .eq("project_id", d.project_id)
     .eq("user_id", user.id)
+    .eq("status", "active")
     .single();
 
   if (!member) return NextResponse.json({ success: false, error: "Not a project member" }, { status: 403 });

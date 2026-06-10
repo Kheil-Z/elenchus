@@ -48,6 +48,7 @@ export async function PUT(
     .select("user_id")
     .eq("project_id", conv.project_id)
     .eq("user_id", user.id)
+    .eq("status", "active")
     .single();
 
   if (!memberCheck) return NextResponse.json({ success: false, error: "Not a project member" }, { status: 403 });
@@ -96,6 +97,7 @@ export async function DELETE(
     .select("role")
     .eq("project_id", conv.project_id)
     .eq("user_id", user.id)
+    .eq("status", "active")
     .single();
 
   const member = memberCheck as unknown as { role: string } | null;

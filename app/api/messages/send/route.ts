@@ -50,6 +50,7 @@ export async function POST(req: NextRequest) {
     .select("id")
     .eq("project_id", project_id)
     .eq("user_id", user.id)
+    .eq("status", "active")
     .maybeSingle();
 
   if (!memberData) {

@@ -22,6 +22,8 @@ interface ChatSidebarProps {
   conversationId?: string;
   currentUserName?: string;
   onUploadFile?: (file: File) => Promise<ChatDocument | null>;
+  mentionsOnly?: boolean;
+  onMentionsToggle?: () => void;
 }
 
 function DocRow({
@@ -137,9 +139,10 @@ export function ChatSidebar({
   conversationId,
   currentUserName,
   onUploadFile,
+  mentionsOnly = false,
+  onMentionsToggle,
 }: ChatSidebarProps) {
   const [search, setSearch] = useState("");
-  const [mentionsOnly, setMentionsOnly] = useState(false);
 
   const [addingMember, setAddingMember] = useState(false);
   const [inviteValue, setInviteValue] = useState("");
@@ -251,7 +254,7 @@ export function ChatSidebar({
         </div>
 
         <button
-          onClick={() => setMentionsOnly((v) => !v)}
+          onClick={onMentionsToggle}
           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors w-full text-left"
           style={
             mentionsOnly

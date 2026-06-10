@@ -30,6 +30,7 @@ async function isProjectMember(projectId: string, userId: string): Promise<boole
     .select("id")
     .eq("project_id", projectId)
     .eq("user_id", userId)
+    .eq("status", "active")
     .maybeSingle();
   return raw.data !== null;
 }
@@ -41,7 +42,8 @@ export const getProjects = async (userId: string): Promise<Result<Project[]>> =>
     const memberRaw = await supabase
       .from("project_members")
       .select("project_id")
-      .eq("user_id", userId);
+      .eq("user_id", userId)
+      .eq("status", "active");
 
     if (memberRaw.error) return { data: null, error: memberRaw.error.message };
 
@@ -158,7 +160,7 @@ export const deleteProject = async (
 // ─── Project Members ─────────────────────────────────────────────────────────
 
 export type ProjectMemberWithUser = ProjectMember & {
-  user: Pick<User, "display_name" | "color" | "email">;
+  user: Pick<User, "display_name" | "color">;
 };
 
 export const getProjectMembers = async (
@@ -171,8 +173,15 @@ export const getProjectMembers = async (
 
     const raw = await supabase
       .from("project_members")
-      .select("*, user:users(display_name, color, email)")
+      .select("*, user:users(display_name, color)")
       .eq("project_id", projectId);
+
+    // Filter out members whose user profile row doesn't exist yet
+    if (raw.data) {
+      raw.data = (raw.data as unknown as ProjectMemberWithUser[]).filter(
+        (m) => m.user !== null
+      ) as never;
+    }
 
     return ok<ProjectMemberWithUser[]>(raw);
   } catch (err) {
@@ -414,7 +423,7 @@ export const getUserProfile = async (userId: string): Promise<Result<User>> => {
   try {
     const raw = await supabase
       .from("users")
-      .select("*")
+      .select("id, display_name, color")
       .eq("id", userId)
       .single();
 
@@ -434,7 +443,7 @@ export const updateUserProfile = async (
       .from("users")
       .update(updates as never)
       .eq("id", userId)
-      .select()
+      .select("id, display_name, color")
       .single();
 
     return ok<User>(raw);
@@ -455,11 +464,13 @@ export const getProjectMemberPreviews = async (
     const { data } = await supabase
       .from("project_members")
       .select("project_id, user_id, user:users(display_name, color)")
-      .in("project_id", projectIds);
+      .in("project_id", projectIds)
+      .eq("status", "active");
     (data ?? []).forEach((row) => {
-      const r = row as unknown as { project_id: string; user_id: string; user: { display_name: string; color: string } };
+      const r = row as unknown as { project_id: string; user_id: string; user: { display_name: string; color: string } | null };
+      if (!r.user) return;
       const list = map.get(r.project_id) ?? [];
-      list.push({ userId: r.user_id, name: r.user.display_name, color: r.user.color });
+      list.push({ userId: r.user_id, name: r.user.display_name, color: r.user.color ?? "blue" });
       map.set(r.project_id, list);
     });
   } catch { /* best-effort */ }
@@ -477,9 +488,10 @@ export const getConversationMemberPreviews = async (
       .select("conversation_id, user_id, user:users(display_name, color)")
       .in("conversation_id", conversationIds);
     (data ?? []).forEach((row) => {
-      const r = row as unknown as { conversation_id: string; user_id: string; user: { display_name: string; color: string } };
+      const r = row as unknown as { conversation_id: string; user_id: string; user: { display_name: string; color: string } | null };
+      if (!r.user) return;
       const list = map.get(r.conversation_id) ?? [];
-      list.push({ userId: r.user_id, name: r.user.display_name, color: r.user.color });
+      list.push({ userId: r.user_id, name: r.user.display_name, color: r.user.color ?? "blue" });
       map.set(r.conversation_id, list);
     });
   } catch { /* best-effort */ }

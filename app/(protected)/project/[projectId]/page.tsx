@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Avatar } from "@/components/Avatar";
 import { LeftNav } from "@/components/LeftNav";
 import { useAuth } from "@/lib/auth-context";
-import { getProject, getConversations, getProjectMembers, getConversationMemberPreviews } from "@/lib/db";
+import { getProject, getConversations, getProjectMembers } from "@/lib/db";
 import { MemberAvatarStack } from "@/components/MemberAvatarStack";
 import { DocPreviewModal } from "@/components/DocPreviewModal";
 import type { MemberPreview } from "@/lib/db";
@@ -32,6 +32,7 @@ interface Conversation {
   lastActive: string;
   messageCount: number;
   participants: MemberPreview[];
+  creatorUserId: string;
 }
 
 interface DocumentEntry {
@@ -75,7 +76,7 @@ interface UnreadConversation {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-const EMOJI_OPTIONS = ["📁", "🗂️", "💼", "🚀", "💡", "🔬", "📝", "🎯", "⚡", "🌱", "🏗️", "🎨", "📊", "🔒", "🤝", "🧪"];
+const EMOJI_OPTIONS = ["📁", "🗂️", "💼", "🚀", "💡", "🔬", "📝", "🎯", "⚡", "🌱", "🏗️", "🎨", "📊", "🔒", "🤝", "🧪", "🌍", "🧠", "🎓", "🏆", "🔮", "🧩", "📡", "🛸", "🎪", "🌊", "🔥", "💎"];
 
 const solidColor: Record<UserColor, string> = {
   blue: "#3B82F6", green: "#22C55E", purple: "#A855F7", coral: "#F87171", amber: "#F59E0B",
@@ -350,6 +351,7 @@ function ConversationsTab({
         lastActive: formatRelative(createJson.conversation.created_at),
         messageCount: 1,
         participants: [],
+        creatorUserId: createJson.conversation.creator_user_id ?? "",
       };
       onConversationCreated(conv);
       router.push(`/chat/${conversationId}`);
@@ -1304,10 +1306,11 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 function mapMember(m: ProjectMemberWithUser): Member {
+  const u = m.user as typeof m.user | null;
   return {
     id: m.user_id,
-    name: m.user.display_name,
-    color: (m.user.color as UserColor) ?? "blue",
+    name: u?.display_name ?? m.user_id,
+    color: (u?.color as UserColor) ?? "blue",
     role: m.role === "can_edit" ? "Can edit" : "Can use",
     online: false,
     tokenPct: 0,
@@ -1321,6 +1324,7 @@ function mapConversation(c: DBConversation, participants: MemberPreview[] = []):
     lastActive: formatRelative(c.created_at),
     messageCount: 0,
     participants,
+    creatorUserId: c.creator_user_id,
   };
 }
 
@@ -1334,6 +1338,7 @@ export default function ProjectPage() {
 
   const [activeTab, setActiveTab] = useState<Tab>("conversations");
   const [navOpen, setNavOpen] = useState(true);
+  const [isOwner, setIsOwner] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [projectDesc, setProjectDesc] = useState("");
   const [editingProject, setEditingProject] = useState(false);
@@ -1366,6 +1371,7 @@ export default function ProjectPage() {
         setDraftName(projRes.data.name);
         setDraftDesc(projRes.data.description ?? "");
         setRealEmoji(projRes.data.emoji ?? "📁");
+        setIsOwner(projRes.data.created_by === user?.id);
       }
       if (membersRes.data) setRealMembers(membersRes.data.map((m) => ({
         ...mapMember(m),
@@ -1376,23 +1382,51 @@ export default function ProjectPage() {
         setRealConversations(mapped);
         const ids = mapped.map((c) => c.id);
         if (ids.length > 0) {
-          Promise.all([
-            supabase.from("messages").select("conversation_id").in("conversation_id", ids),
-            getConversationMemberPreviews(ids),
-          ]).then(([{ data: rows }, participantMap]) => {
-            const counts = new Map<string, number>();
-            (rows ?? []).forEach((r) => {
-              const id = (r as { conversation_id: string }).conversation_id;
-              counts.set(id, (counts.get(id) ?? 0) + 1);
-            });
-            setRealConversations((prev) =>
-              prev.map((c) => ({
-                ...c,
-                messageCount: counts.get(c.id) ?? 0,
-                participants: participantMap.get(c.id) ?? [],
-              }))
-            );
+          // Build a color map from the project members we already loaded
+          const memberColorMap = new Map<string, { name: string; color: string }>();
+          (membersRes.data ?? []).forEach((m) => {
+            const u = m.user as typeof m.user | null;
+            if (u) memberColorMap.set(m.user_id, { name: u.display_name ?? m.user_id, color: u.color ?? "blue" });
           });
+
+          supabase
+            .from("messages")
+            .select("conversation_id, author_user_id, author_display_name, created_at")
+            .in("conversation_id", ids)
+            .order("created_at", { ascending: true })
+            .then(({ data: rows }) => {
+              const counts = new Map<string, number>();
+              // authorsByConv: ordered list of unique authors per conversation
+              const authorsByConv = new Map<string, { userId: string; name: string }[]>();
+
+              (rows ?? []).forEach((r) => {
+                const row = r as { conversation_id: string; author_user_id: string | null; author_display_name: string };
+                counts.set(row.conversation_id, (counts.get(row.conversation_id) ?? 0) + 1);
+                if (!row.author_user_id) return;
+                const list = authorsByConv.get(row.conversation_id) ?? [];
+                if (!list.some((a) => a.userId === row.author_user_id)) {
+                  list.push({ userId: row.author_user_id, name: row.author_display_name });
+                }
+                authorsByConv.set(row.conversation_id, list);
+              });
+
+              setRealConversations((prev) =>
+                prev.map((c) => {
+                  const authors = authorsByConv.get(c.id) ?? [];
+                  // Creator first, then others in message order
+                  const sorted = [
+                    ...authors.filter((a) => a.userId === c.creatorUserId),
+                    ...authors.filter((a) => a.userId !== c.creatorUserId),
+                  ];
+                  const participants: MemberPreview[] = sorted.map((a) => ({
+                    userId: a.userId,
+                    name: memberColorMap.get(a.userId)?.name ?? a.name,
+                    color: memberColorMap.get(a.userId)?.color ?? "blue",
+                  }));
+                  return { ...c, messageCount: counts.get(c.id) ?? 0, participants };
+                })
+              );
+            });
         }
       }
     });
@@ -1406,7 +1440,7 @@ export default function ProjectPage() {
 
   useEffect(() => {
     if (!user) return;
-    const presence = supabase.channel(`presence:project:${projectId}`);
+    const presence = supabase.channel("presence:global");
     presence
       .on("presence", { event: "sync" }, () => {
         const state = presence.presenceState<{ user_id: string }>();
@@ -1547,13 +1581,19 @@ export default function ProjectPage() {
           ) : (
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <span className="text-base shrink-0" aria-hidden>{realEmoji}</span>
-              <button
-                onClick={() => { if (!projectName) return; setHeaderDraft(projectName); setHeaderDraftEmoji(realEmoji); setHeaderEditing(true); setTimeout(() => headerInputRef.current?.select(), 0); }}
-                title="Click to rename"
-                className="text-sm font-medium text-foreground truncate hover:opacity-70 transition-opacity text-left min-w-0"
-              >
-                {projectName || "Loading…"}
-              </button>
+              {isOwner ? (
+                <button
+                  onClick={() => { if (!projectName) return; setHeaderDraft(projectName); setHeaderDraftEmoji(realEmoji); setHeaderEditing(true); setTimeout(() => headerInputRef.current?.select(), 0); }}
+                  title="Click to rename"
+                  className="text-sm font-medium text-foreground truncate hover:opacity-70 transition-opacity text-left min-w-0"
+                >
+                  {projectName || "Loading…"}
+                </button>
+              ) : (
+                <span className="text-sm font-medium text-foreground truncate">
+                  {projectName || "Loading…"}
+                </span>
+              )}
             </div>
           )}
 

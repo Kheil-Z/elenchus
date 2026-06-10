@@ -24,10 +24,11 @@ interface AvatarProps {
 }
 
 export function Avatar({ name, color, size = "md", className = "", showOnline }: AvatarProps) {
-  const { bg, text } = colorMap[color];
-  const initials = name
+  const { bg, text } = (colorMap[color] ?? colorMap.blue);
+  const initials = (name || "?")
     .split(" ")
     .map((n) => n[0])
+    .filter(Boolean)
     .join("")
     .slice(0, 2)
     .toUpperCase();
