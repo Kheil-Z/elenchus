@@ -21,7 +21,7 @@ interface InputBarProps {
   currentUser: { name: string; color: UserColor };
   members?: Member[];
   apiKeyStatus?: "active" | "not_set" | "error";
-  onSend?: (msg: string) => Promise<void>;
+  onSend?: (msg: string, files: File[]) => Promise<void>;
   sending?: boolean;
 }
 
@@ -50,11 +50,12 @@ export function InputBar({ currentUser, members = [], apiKeyStatus, onSend, send
       e.preventDefault();
       if (!canSend || sending) return;
       const msg = value.trim();
+      const files = attachedFiles;
       setValue("");
       setAttachedFiles([]);
       setSelectedDelegate(null);
       if (textareaRef.current) textareaRef.current.style.height = "auto";
-      if (onSend && msg) await onSend(msg);
+      if (onSend && (msg || files.length > 0)) await onSend(msg, files);
     }
   }
 
@@ -195,11 +196,12 @@ export function InputBar({ currentUser, members = [], apiKeyStatus, onSend, send
               onClick={async () => {
                 if (!canSend || sending) return;
                 const msg = value.trim();
+                const files = attachedFiles;
                 setValue("");
                 setAttachedFiles([]);
                 setSelectedDelegate(null);
                 if (textareaRef.current) textareaRef.current.style.height = "auto";
-                if (onSend && msg) await onSend(msg);
+                if (onSend && (msg || files.length > 0)) await onSend(msg, files);
               }}
               className="w-7 h-8 rounded-l-lg flex items-center justify-center transition-all disabled:opacity-30"
               style={{ backgroundColor: sendColor[currentUser.color] }}

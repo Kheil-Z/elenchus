@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import type { ChatMessage, ContentSegment } from "@/lib/chat-types";
 import type { UserColor } from "@/lib/types";
 import { Avatar } from "@/components/Avatar";
+import { DocPreviewModal } from "@/components/DocPreviewModal";
 
 // ── Color tints per user ──────────────────────────────────────────────────────
 
@@ -25,12 +26,37 @@ const nameColor: Record<UserColor, string> = {
 
 // ── Document chip ─────────────────────────────────────────────────────────────
 
-function DocChip({ filename, uploader }: { filename: string; uploader: string }) {
-  return (
-    <span className="inline-flex items-center gap-1 bg-surface border border-border rounded-md px-1.5 py-px text-xs text-foreground mx-0.5 align-middle whitespace-nowrap">
+function DocChip({
+  id, filename, uploader, sizeBytes, mimeType, createdAt, onPreview,
+}: {
+  id?: string; filename: string; uploader?: string;
+  sizeBytes?: number; mimeType?: string | null; createdAt?: string;
+  onPreview?: (seg: DocPreviewArg) => void;
+}) {
+  const canPreview = !!id && !!onPreview;
+  const inner = (
+    <>
       <span aria-hidden>📄</span>
       <span className="font-medium">{filename}</span>
-      <span className="text-muted">· {uploader}</span>
+      {uploader && <span className="text-muted">· {uploader}</span>}
+    </>
+  );
+
+  if (canPreview && onPreview) {
+    return (
+      <button
+        onClick={() => onPreview({ id: id!, filename, uploader, sizeBytes, mimeType: mimeType ?? null, createdAt })}
+        className="inline-flex items-center gap-1 bg-surface border border-border rounded-md px-1.5 py-px text-xs text-foreground mx-0.5 align-middle whitespace-nowrap hover:border-foreground/20 hover:bg-background transition-colors cursor-pointer"
+        title="Click to preview"
+      >
+        {inner}
+      </button>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1 bg-surface border border-border rounded-md px-1.5 py-px text-xs text-foreground mx-0.5 align-middle whitespace-nowrap">
+      {inner}
     </span>
   );
 }
@@ -64,7 +90,9 @@ function renderInline(token: string, key: string): React.ReactNode {
 
 // ── Segment renderer — builds paragraphs, keeping doc chips inline ────────────
 
-function renderSegments(segments: ContentSegment[]) {
+type DocPreviewArg = { id: string; filename: string; uploader?: string; sizeBytes?: number; mimeType?: string | null; createdAt?: string };
+
+function renderSegments(segments: ContentSegment[], onDocPreview?: (doc: DocPreviewArg) => void) {
   // Each paragraph is an array of inline React nodes (text tokens + doc chips).
   const paragraphs: React.ReactNode[][] = [[]];
 
@@ -74,7 +102,16 @@ function renderSegments(segments: ContentSegment[]) {
 
     if (seg.type === "doc") {
       paragraphs[paragraphs.length - 1]!.push(
-        <DocChip key={`doc-${si}`} filename={seg.filename} uploader={seg.uploader} />
+        <DocChip
+          key={`doc-${si}`}
+          id={seg.id}
+          filename={seg.filename}
+          uploader={seg.uploader}
+          sizeBytes={seg.sizeBytes}
+          mimeType={seg.mimeType}
+          createdAt={seg.createdAt}
+          onPreview={onDocPreview}
+        />
       );
     } else {
       const paras = seg.text.split("\n\n");
@@ -97,7 +134,7 @@ function renderSegments(segments: ContentSegment[]) {
 
 // ── Individual message ────────────────────────────────────────────────────────
 
-function MessageBubble({ msg, isYou }: { msg: ChatMessage; isYou: boolean }) {
+function MessageBubble({ msg, isYou, onDocPreview }: { msg: ChatMessage; isYou: boolean; onDocPreview?: (doc: DocPreviewArg) => void }) {
   const isAssistant = msg.role === "assistant";
 
   if (isAssistant) {
@@ -128,7 +165,7 @@ function MessageBubble({ msg, isYou }: { msg: ChatMessage; isYou: boolean }) {
             className="rounded-2xl rounded-tr-sm px-4 py-3 text-sm leading-relaxed text-foreground"
             style={{ backgroundColor: "#F1F0EE", border: "1px solid #E2E0DC" }}
           >
-            {renderSegments(msg.segments)}
+            {renderSegments(msg.segments, onDocPreview)}
           </div>
         </div>
       </div>
@@ -152,7 +189,7 @@ function MessageBubble({ msg, isYou }: { msg: ChatMessage; isYou: boolean }) {
           className="rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed text-foreground"
           style={{ backgroundColor: tint.bg, border: `1px solid ${tint.border}` }}
         >
-          {renderSegments(msg.segments)}
+          {renderSegments(msg.segments, onDocPreview)}
         </div>
       </div>
     </div>
@@ -170,6 +207,7 @@ interface MessageListProps {
 
 export function MessageList({ messages, currentUserName, loading, sending }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [docPreview, setDocPreview] = useState<DocPreviewArg | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -184,10 +222,22 @@ export function MessageList({ messages, currentUserName, loading, sending }: Mes
   }
 
   return (
+    <>
+    {docPreview && (
+      <DocPreviewModal
+        id={docPreview.id}
+        name={docPreview.filename}
+        sizeBytes={docPreview.sizeBytes}
+        mimeType={docPreview.mimeType}
+        uploaderName={docPreview.uploader}
+        createdAt={docPreview.createdAt}
+        onClose={() => setDocPreview(null)}
+      />
+    )}
     <div className="flex-1 overflow-y-auto">
       <div className="flex flex-col gap-6 px-6 py-6 max-w-3xl mx-auto">
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} msg={msg} isYou={msg.authorName === currentUserName} />
+          <MessageBubble key={msg.id} msg={msg} isYou={msg.authorName === currentUserName} onDocPreview={setDocPreview} />
         ))}
         {sending && (
           <div className="flex flex-row-reverse gap-3">
@@ -213,5 +263,6 @@ export function MessageList({ messages, currentUserName, loading, sending }: Mes
         <div ref={bottomRef} />
       </div>
     </div>
+    </>
   );
 }

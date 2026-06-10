@@ -15,7 +15,7 @@ async function authenticate(req: NextRequest) {
   return user;
 }
 
-// GET — list documents for a project
+// GET — list documents for a project (all scopes)
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ projectId: string }> }
@@ -36,7 +36,7 @@ export async function GET(
 
   const { data: docsData, error: docsError } = await supabaseAdmin
     .from("documents")
-    .select("*")
+    .select("id, name, storage_path, size_bytes, mime_type, uploaded_by, created_at, conversation_id")
     .eq("project_id", projectId)
     .order("created_at", { ascending: false });
 
@@ -45,6 +45,7 @@ export async function GET(
   const docs = (docsData ?? []) as unknown as Array<{
     id: string; name: string; storage_path: string; size_bytes: number;
     mime_type: string | null; uploaded_by: string; created_at: string;
+    conversation_id: string | null;
   }>;
 
   // Enrich with uploader names
@@ -61,11 +62,30 @@ export async function GET(
     });
   }
 
-  const documents = docs.map((d) => ({ ...d, uploader_name: uploaderMap[d.uploaded_by] ?? "Unknown" }));
+  // Enrich with conversation names for scoped docs
+  const convIds = Array.from(new Set(docs.map((d) => d.conversation_id).filter(Boolean))) as string[];
+  let convNameMap: Record<string, string> = {};
+  if (convIds.length > 0) {
+    const { data: convData } = await supabaseAdmin
+      .from("conversations")
+      .select("id, name")
+      .in("id", convIds);
+    (convData ?? []).forEach((c) => {
+      const row = c as unknown as { id: string; name: string };
+      convNameMap[row.id] = row.name;
+    });
+  }
+
+  const documents = docs.map((d) => ({
+    ...d,
+    uploader_name: uploaderMap[d.uploaded_by] ?? "Unknown",
+    conversation_name: d.conversation_id ? (convNameMap[d.conversation_id] ?? null) : null,
+  }));
+
   return NextResponse.json({ success: true, documents });
 }
 
-// POST — upload a document
+// POST — upload a document (project-wide by default; pass conversationId field to scope it)
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ projectId: string }> }
@@ -92,6 +112,23 @@ export async function POST(
   const file = formData.get("file") as File | null;
   if (!file) return NextResponse.json({ success: false, error: "No file provided" }, { status: 400 });
 
+  const conversationId = (formData.get("conversationId") as string | null) || null;
+
+  // If conversationId provided, verify it belongs to this project
+  let conversationName: string | null = null;
+  if (conversationId) {
+    const { data: conv } = await supabaseAdmin
+      .from("conversations")
+      .select("project_id, name")
+      .eq("id", conversationId)
+      .single();
+    const convRow = conv as unknown as { project_id: string; name: string } | null;
+    if (!convRow || convRow.project_id !== projectId) {
+      return NextResponse.json({ success: false, error: "Conversation not in this project" }, { status: 400 });
+    }
+    conversationName = convRow.name;
+  }
+
   const MAX_BYTES = 20 * 1024 * 1024; // 20 MB
   if (file.size > MAX_BYTES) {
     return NextResponse.json({ success: false, error: "File exceeds 20 MB limit" }, { status: 413 });
@@ -115,7 +152,6 @@ export async function POST(
     return NextResponse.json({ success: false, error: msg }, { status: 500 });
   }
 
-  // Record metadata
   const { data: docData, error: dbError } = await supabaseAdmin
     .from("documents")
     .insert({
@@ -125,6 +161,7 @@ export async function POST(
       size_bytes: file.size,
       mime_type: file.type || null,
       uploaded_by: user.id,
+      conversation_id: conversationId,
     } as never)
     .select()
     .single();
@@ -134,7 +171,6 @@ export async function POST(
     return NextResponse.json({ success: false, error: dbError.message }, { status: 500 });
   }
 
-  // Log activity
   await supabaseAdmin.from("activity_log").insert({
     project_id: projectId,
     user_id: user.id,
@@ -142,9 +178,11 @@ export async function POST(
     target_type: "document",
     target_name: file.name,
     target_id: (docData as unknown as { id: string }).id,
+    metadata: conversationId
+      ? { scope: "chat", conversation_id: conversationId, conversation_name: conversationName }
+      : { scope: "project" },
   } as never);
 
-  // Get uploader name for response
   const { data: uploaderData } = await supabaseAdmin
     .from("users")
     .select("display_name")
@@ -154,6 +192,7 @@ export async function POST(
   const document = {
     ...(docData as unknown as object),
     uploader_name: (uploaderData as unknown as { display_name: string } | null)?.display_name ?? "You",
+    conversation_name: null,
   };
 
   return NextResponse.json({ success: true, document });

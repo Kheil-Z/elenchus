@@ -2,7 +2,7 @@ import type { UserColor } from "./types";
 
 export type ContentSegment =
   | { type: "text"; text: string }
-  | { type: "doc"; filename: string; uploader: string };
+  | { type: "doc"; id?: string; filename: string; uploader: string; sizeBytes?: number; mimeType?: string | null; createdAt?: string };
 
 export interface ChatMessage {
   id: string;
@@ -25,7 +25,12 @@ export interface ChatMember {
 }
 
 export interface ChatDocument {
+  id: string;
   filename: string;
   uploader: string;
   uploaderColor: UserColor;
+  conversationId: string | null; // null = project-wide
+  sizeBytes: number;
+  mimeType: string | null;
+  createdAt: string;
 }

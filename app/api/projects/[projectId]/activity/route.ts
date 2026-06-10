@@ -48,6 +48,7 @@ export async function GET(
     id: string; user_id: string | null; action: string;
     target_type: string | null; target_name: string | null;
     target_id: string | null; created_at: string;
+    metadata: Record<string, string> | null;
   }>;
 
   // Enrich with user display names

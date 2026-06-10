@@ -8,6 +8,7 @@ import { LeftNav } from "@/components/LeftNav";
 import { useAuth } from "@/lib/auth-context";
 import { getProject, getConversations, getProjectMembers, getConversationMemberPreviews } from "@/lib/db";
 import { MemberAvatarStack } from "@/components/MemberAvatarStack";
+import { DocPreviewModal } from "@/components/DocPreviewModal";
 import type { MemberPreview } from "@/lib/db";
 import { supabase } from "@/lib/supabase";
 import type { UserColor } from "@/lib/types";
@@ -40,6 +41,8 @@ interface DocumentEntry {
   mime_type: string | null;
   uploader_name: string;
   created_at: string;
+  conversation_id: string | null;
+  conversation_name: string | null;
 }
 
 interface ActivityEntry {
@@ -50,6 +53,7 @@ interface ActivityEntry {
   action: string;
   target_type: string | null;
   target_name: string | null;
+  metadata: { scope?: string; conversation_name?: string; conversation_id?: string } | null;
   created_at: string;
 }
 
@@ -462,12 +466,67 @@ function ConversationsTab({
 
 // ── Documents tab ─────────────────────────────────────────────────────────────
 
-function DocumentsTab({ projectId, currentUser }: { projectId: string; currentUser: string }) {
+function DocumentsTab({
+  projectId,
+  currentUser,
+  conversations,
+}: {
+  projectId: string;
+  currentUser: string;
+  conversations: { id: string; name: string }[];
+}) {
   const [docs, setDocs] = useState<DocumentEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [pickerOpenFor, setPickerOpenFor] = useState<string | null>(null);
+  const [movingDocId, setMovingDocId] = useState<string | null>(null);
+  const [deleteConfirmFor, setDeleteConfirmFor] = useState<string | null>(null);
+  const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<DocumentEntry | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const deletePopoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!pickerOpenFor) return;
+    function handle(e: MouseEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setPickerOpenFor(null);
+      }
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [pickerOpenFor]);
+
+  useEffect(() => {
+    if (!deleteConfirmFor) return;
+    function handle(e: MouseEvent) {
+      if (deletePopoverRef.current && !deletePopoverRef.current.contains(e.target as Node)) {
+        setDeleteConfirmFor(null);
+      }
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [deleteConfirmFor]);
+
+  async function handleDeleteDoc(docId: string) {
+    setDeletingDocId(docId);
+    setDeleteConfirmFor(null);
+    const token = await getToken();
+    if (!token) { setDeletingDocId(null); return; }
+    try {
+      const res = await fetch(`/api/documents/${docId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (json.success) {
+        setDocs((prev) => prev.filter((d) => d.id !== docId));
+      }
+    } catch { /* best-effort */ }
+    setDeletingDocId(null);
+  }
 
   useEffect(() => {
     getToken().then((token) => {
@@ -493,6 +552,7 @@ function DocumentsTab({ projectId, currentUser }: { projectId: string; currentUs
 
     const formData = new FormData();
     formData.append("file", file);
+    // No conversationId here — project-wide by default from the Documents tab
 
     try {
       const res = await fetch(`/api/projects/${projectId}/documents`, {
@@ -502,7 +562,7 @@ function DocumentsTab({ projectId, currentUser }: { projectId: string; currentUs
       });
       const json = await res.json();
       if (json.success) {
-        setDocs((prev) => [json.document, ...prev]);
+        setDocs((prev) => [{ ...json.document, conversation_id: null, conversation_name: null }, ...prev]);
       } else {
         setUploadError(json.error ?? "Upload failed");
       }
@@ -513,12 +573,65 @@ function DocumentsTab({ projectId, currentUser }: { projectId: string; currentUs
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  if (loading) {
-    return <div className="p-6 text-sm text-muted">Loading…</div>;
+  async function handleScopeChange(docId: string, toConversationId: string | null) {
+    if (movingDocId) return;
+    setMovingDocId(docId);
+    setPickerOpenFor(null);
+    const token = await getToken();
+    if (!token) { setMovingDocId(null); return; }
+    try {
+      const res = await fetch(`/api/documents/${docId}/scope`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ conversationId: toConversationId }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        const convName = toConversationId
+          ? (conversations.find((c) => c.id === toConversationId)?.name ?? null)
+          : null;
+        setDocs((prev) =>
+          prev.map((d) =>
+            d.id === docId ? { ...d, conversation_id: toConversationId, conversation_name: convName } : d
+          )
+        );
+      }
+    } catch { /* best-effort */ }
+    setMovingDocId(null);
   }
 
+  const projectDocs = docs.filter((d) => !d.conversation_id);
+  const chatDocs = docs.filter((d) => d.conversation_id);
+
+  // Group chat docs by conversation_id
+  const chatDocsByConv = new Map<string, DocumentEntry[]>();
+  chatDocs.forEach((d) => {
+    const key = d.conversation_id!;
+    if (!chatDocsByConv.has(key)) chatDocsByConv.set(key, []);
+    chatDocsByConv.get(key)!.push(d);
+  });
+
+  if (loading) return <div className="p-6 text-sm text-muted">Loading…</div>;
+
   return (
-    <div className="p-6 flex flex-col gap-4">
+    <>
+    {previewDoc && (
+      <DocPreviewModal
+        id={previewDoc.id}
+        name={previewDoc.name}
+        sizeBytes={previewDoc.size_bytes}
+        mimeType={previewDoc.mime_type}
+        uploaderName={previewDoc.uploader_name}
+        createdAt={previewDoc.created_at}
+        onClose={() => setPreviewDoc(null)}
+        onDeleted={(deletedId) => {
+          setDocs((prev) => prev.filter((d) => d.id !== deletedId));
+          setPreviewDoc(null);
+        }}
+      />
+    )}
+    <div className="p-6 flex flex-col gap-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted">{docs.length} document{docs.length !== 1 ? "s" : ""}</p>
         <button
@@ -538,7 +651,7 @@ function DocumentsTab({ projectId, currentUser }: { projectId: string; currentUs
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                 <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
               </svg>
-              Upload
+              Upload project-wide
             </>
           )}
         </button>
@@ -558,28 +671,248 @@ function DocumentsTab({ projectId, currentUser }: { projectId: string; currentUs
           <p className="text-xs text-muted/50">Upload a file to share it with the project.</p>
         </div>
       ) : (
-        <div className="bg-surface border border-border rounded-xl overflow-hidden">
-          {docs.map((doc, i) => (
-            <div
-              key={doc.id}
-              className={`flex items-center gap-4 px-4 py-3.5 hover:bg-background transition-colors ${i < docs.length - 1 ? "border-b border-border" : ""}`}
-            >
-              <span className="text-base shrink-0" aria-hidden>📄</span>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground truncate">{doc.name}</p>
-                <p className="text-[11px] text-muted mt-0.5">
-                  {doc.uploader_name === currentUser ? "You" : doc.uploader_name}
-                </p>
+        <>
+          {/* Project-wide section */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-muted/60 shrink-0">
+                <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.1" />
+                <path d="M1.5 6h9M6 1.5c-1 1.2-1.6 2.7-1.6 4.5S5 9.3 6 10.5M6 1.5c1 1.2 1.6 2.7 1.6 4.5S7 9.3 6 10.5" stroke="currentColor" strokeWidth="1.1" />
+              </svg>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted/60">
+                Project-wide
+              </p>
+              <span className="text-[10px] text-muted/40">— included in all conversations</span>
+            </div>
+
+            {projectDocs.length === 0 ? (
+              <p className="text-xs text-muted/50 py-2">No project-wide documents.</p>
+            ) : (
+              <div className="bg-surface border border-border rounded-xl">
+                {projectDocs.map((doc, i) => (
+                  <div
+                    key={doc.id}
+                    className={`group/doc flex items-center gap-4 px-4 py-3.5 hover:bg-background transition-colors ${
+                      i === 0 ? "rounded-t-xl" : ""
+                    } ${i === projectDocs.length - 1 ? "rounded-b-xl" : "border-b border-border"}`}
+                  >
+                    <button onClick={() => setPreviewDoc(doc)} className="text-base shrink-0 hover:scale-110 transition-transform" title="Preview">📄</button>
+                    <button onClick={() => setPreviewDoc(doc)} className="flex-1 min-w-0 text-left">
+                      <p className="text-sm font-medium text-foreground truncate hover:underline underline-offset-2">{doc.name}</p>
+                      <p className="text-[11px] text-muted mt-0.5">
+                        {doc.uploader_name === currentUser ? "You" : doc.uploader_name}
+                      </p>
+                    </button>
+                    <div className="text-right shrink-0">
+                      <p className="text-[11px] text-muted">{formatRelative(doc.created_at)}</p>
+                      <p className="text-[11px] text-muted/60 mt-0.5">{formatBytes(doc.size_bytes)}</p>
+                    </div>
+                    {/* Move to chat button */}
+                    {conversations.length > 0 && (
+                      <div className="relative shrink-0">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setPickerOpenFor(pickerOpenFor === doc.id ? null : doc.id); }}
+                          disabled={movingDocId === doc.id}
+                          title="Move to a specific chat"
+                          className="flex items-center gap-1 text-[11px] text-muted hover:text-foreground border border-transparent hover:border-border rounded-md px-2 py-1 transition-colors opacity-0 group-hover/doc:opacity-100 disabled:opacity-40 whitespace-nowrap"
+                        >
+                          {movingDocId === doc.id ? (
+                            <svg className="animate-spin" width="9" height="9" viewBox="0 0 10 10" fill="none">
+                              <circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.5" strokeDasharray="20" strokeDashoffset="10" />
+                            </svg>
+                          ) : (
+                            <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+                              <path d="M4.5 1.5v6M1.5 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          )}
+                          Move to chat
+                        </button>
+                        {pickerOpenFor === doc.id && (
+                          <div
+                            ref={pickerRef}
+                            className="absolute right-0 top-full mt-1 w-52 bg-surface border border-border rounded-xl shadow-lg z-20 overflow-hidden"
+                          >
+                            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted/60 px-3 pt-3 pb-1.5">
+                              Move to chat
+                            </p>
+                            {conversations.map((conv) => (
+                              <button
+                                key={conv.id}
+                                onClick={() => handleScopeChange(doc.id, conv.id)}
+                                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-background transition-colors text-left text-xs text-foreground"
+                              >
+                                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="shrink-0 text-muted">
+                                  <path d="M1 1.5h8a.5.5 0 0 1 .5.5v5a.5.5 0 0 1-.5.5H5.5L3.5 9V7.5H1a.5.5 0 0 1-.5-.5V2A.5.5 0 0 1 1 1.5Z" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" />
+                                </svg>
+                                <span className="truncate">{conv.name}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {/* Delete button */}
+                    <div className="relative shrink-0">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setDeleteConfirmFor(deleteConfirmFor === doc.id ? null : doc.id); setPickerOpenFor(null); }}
+                        disabled={deletingDocId === doc.id}
+                        title="Delete document"
+                        className="flex items-center justify-center w-7 h-7 text-muted hover:text-red-600 border border-transparent hover:border-red-200 hover:bg-red-50 rounded-md transition-colors opacity-0 group-hover/doc:opacity-100 disabled:opacity-40"
+                      >
+                        {deletingDocId === doc.id ? (
+                          <svg className="animate-spin" width="10" height="10" viewBox="0 0 10 10" fill="none">
+                            <circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.5" strokeDasharray="20" strokeDashoffset="10" />
+                          </svg>
+                        ) : (
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M2 3h8M4 3V2h4v1M5 5.5v3M7 5.5v3M3 3l.5 7h5L9 3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        )}
+                      </button>
+                      {deleteConfirmFor === doc.id && (
+                        <div
+                          ref={deletePopoverRef}
+                          className="absolute right-0 top-full mt-1 w-44 bg-surface border border-border rounded-xl shadow-lg z-20 p-3 flex flex-col gap-2"
+                        >
+                          <p className="text-xs text-foreground font-medium">Delete permanently?</p>
+                          <p className="text-[10px] text-muted leading-snug">This cannot be undone.</p>
+                          <div className="flex gap-1.5 mt-1">
+                            <button
+                              onClick={() => setDeleteConfirmFor(null)}
+                              className="flex-1 text-xs text-muted border border-border rounded-lg py-1.5 hover:bg-background transition-colors"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => handleDeleteDoc(doc.id)}
+                              className="flex-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg py-1.5 transition-colors"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className="text-right shrink-0">
-                <p className="text-[11px] text-muted">{formatRelative(doc.created_at)}</p>
-                <p className="text-[11px] text-muted/60 mt-0.5">{formatBytes(doc.size_bytes)}</p>
+            )}
+          </div>
+
+          {/* Chat-scoped section */}
+          {chatDocsByConv.size > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-muted/60 shrink-0">
+                  <path d="M1 2h10a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-.5.5H6.5L4.5 11V9H1a.5.5 0 0 1-.5-.5v-6A.5.5 0 0 1 1 2Z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
+                </svg>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted/60">
+                  Chat documents
+                </p>
+                <span className="text-[10px] text-muted/40">— scoped to specific conversations</span>
+              </div>
+
+              <div className="flex flex-col gap-4">
+                {Array.from(chatDocsByConv.entries()).map(([convId, convDocs]) => (
+                  <div key={convId}>
+                    <div className="flex items-center gap-1.5 mb-1.5 px-1">
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-muted shrink-0">
+                        <path d="M1 1.5h8a.5.5 0 0 1 .5.5v5a.5.5 0 0 1-.5.5H5.5L3.5 9V7.5H1a.5.5 0 0 1-.5-.5V2A.5.5 0 0 1 1 1.5Z" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" />
+                      </svg>
+                      <span className="text-xs font-medium text-muted truncate">
+                        {convDocs[0]?.conversation_name ?? "Unknown conversation"}
+                      </span>
+                    </div>
+                    <div className="bg-surface border border-border rounded-xl">
+                      {convDocs.map((doc, i) => (
+                        <div
+                          key={doc.id}
+                          className={`group/doc flex items-center gap-4 px-4 py-3.5 hover:bg-background transition-colors ${
+                            i === 0 ? "rounded-t-xl" : ""
+                          } ${i === convDocs.length - 1 ? "rounded-b-xl" : "border-b border-border"}`}
+                        >
+                          <button onClick={() => setPreviewDoc(doc)} className="text-base shrink-0 hover:scale-110 transition-transform" title="Preview">📄</button>
+                          <button onClick={() => setPreviewDoc(doc)} className="flex-1 min-w-0 text-left">
+                            <p className="text-sm font-medium text-foreground truncate hover:underline underline-offset-2">{doc.name}</p>
+                            <p className="text-[11px] text-muted mt-0.5">
+                              {doc.uploader_name === currentUser ? "You" : doc.uploader_name}
+                            </p>
+                          </button>
+                          <div className="text-right shrink-0">
+                            <p className="text-[11px] text-muted">{formatRelative(doc.created_at)}</p>
+                            <p className="text-[11px] text-muted/60 mt-0.5">{formatBytes(doc.size_bytes)}</p>
+                          </div>
+                          <button
+                            onClick={() => handleScopeChange(doc.id, null)}
+                            disabled={movingDocId === doc.id}
+                            title="Make project-wide"
+                            className="flex items-center gap-1 text-[11px] text-muted hover:text-foreground border border-transparent hover:border-border rounded-md px-2 py-1 transition-colors opacity-0 group-hover/doc:opacity-100 disabled:opacity-40 whitespace-nowrap shrink-0"
+                          >
+                            {movingDocId === doc.id ? (
+                              <svg className="animate-spin" width="9" height="9" viewBox="0 0 10 10" fill="none">
+                                <circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.5" strokeDasharray="20" strokeDashoffset="10" />
+                              </svg>
+                            ) : (
+                              <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+                                <path d="M4.5 7.5V1.5M1.5 4.5l3-3 3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            )}
+                            Make project-wide
+                          </button>
+                          {/* Delete button */}
+                          <div className="relative shrink-0">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setDeleteConfirmFor(deleteConfirmFor === doc.id ? null : doc.id); }}
+                              disabled={deletingDocId === doc.id}
+                              title="Delete document"
+                              className="flex items-center justify-center w-7 h-7 text-muted hover:text-red-600 border border-transparent hover:border-red-200 hover:bg-red-50 rounded-md transition-colors opacity-0 group-hover/doc:opacity-100 disabled:opacity-40"
+                            >
+                              {deletingDocId === doc.id ? (
+                                <svg className="animate-spin" width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                  <circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.5" strokeDasharray="20" strokeDashoffset="10" />
+                                </svg>
+                              ) : (
+                                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                  <path d="M2 3h8M4 3V2h4v1M5 5.5v3M7 5.5v3M3 3l.5 7h5L9 3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              )}
+                            </button>
+                            {deleteConfirmFor === doc.id && (
+                              <div
+                                ref={deletePopoverRef}
+                                className="absolute right-0 top-full mt-1 w-44 bg-surface border border-border rounded-xl shadow-lg z-20 p-3 flex flex-col gap-2"
+                              >
+                                <p className="text-xs text-foreground font-medium">Delete permanently?</p>
+                                <p className="text-[10px] text-muted leading-snug">This cannot be undone.</p>
+                                <div className="flex gap-1.5 mt-1">
+                                  <button
+                                    onClick={() => setDeleteConfirmFor(null)}
+                                    className="flex-1 text-xs text-muted border border-border rounded-lg py-1.5 hover:bg-background transition-colors"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteDoc(doc.id)}
+                                    className="flex-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg py-1.5 transition-colors"
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
     </div>
+    </>
   );
 }
 
@@ -737,7 +1070,27 @@ const ACTION_LABELS: Record<string, string> = {
   removed_member:        "removed",
   left_project:          "left this project",
   uploaded_document:     "uploaded",
+  moved_document_scope:  "moved",
+  deleted_document:      "deleted",
 };
+
+function truncateName(name: string, max = 32): string {
+  return name.length > max ? name.slice(0, max - 1) + "…" : name;
+}
+
+function activitySuffix(item: ActivityEntry): string | null {
+  const m = item.metadata;
+  if (!m) return null;
+  if (item.action === "uploaded_document" || item.action === "moved_document_scope") {
+    if (m.scope === "chat") return `to "${m.conversation_name ?? "a chat"}"`;
+    if (m.scope === "project") return "to project";
+  }
+  if (item.action === "deleted_document") {
+    if (m.scope === "chat") return `from "${m.conversation_name ?? "a chat"}"`;
+    if (m.scope === "project") return "from project";
+  }
+  return null;
+}
 
 function ActivityTab({ projectId }: { projectId: string }) {
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
@@ -787,7 +1140,10 @@ function ActivityTab({ projectId }: { projectId: string }) {
                 {" "}
                 <span className="text-muted">{ACTION_LABELS[item.action] ?? item.action}</span>
                 {item.target_name && (
-                  <>{" "}<span className="font-medium text-foreground">{item.target_name}</span></>
+                  <>{" "}<span className="font-medium text-foreground" title={item.target_name}>{truncateName(item.target_name)}</span></>
+                )}
+                {activitySuffix(item) && (
+                  <>{" "}<span className="text-muted">{activitySuffix(item)}</span></>
                 )}
               </p>
             </div>
@@ -1287,16 +1643,6 @@ export default function ProjectPage() {
               </div>
             </div>
 
-            {/* Documents */}
-            <div className="px-4 py-4">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted/60 mb-2">Documents</p>
-              <button
-                onClick={() => setActiveTab("documents")}
-                className="text-[11px] text-muted/50 hover:text-muted transition-colors text-left"
-              >
-                View in Documents tab →
-              </button>
-            </div>
           </aside>
 
           {/* Main */}
@@ -1340,7 +1686,11 @@ export default function ProjectPage() {
                   />
                 )}
                 {activeTab === "documents" && (
-                  <DocumentsTab projectId={projectId} currentUser={currentUser} />
+                  <DocumentsTab
+                    projectId={projectId}
+                    currentUser={currentUser}
+                    conversations={realConversations}
+                  />
                 )}
                 {activeTab === "members" && (
                   <MembersTab
