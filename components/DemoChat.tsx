@@ -8,6 +8,12 @@ const colorText: Record<UserColor, string> = {
   purple: "#7E22CE",
   coral:  "#B91C1C",
   amber:  "#92400E",
+  teal:   "#0F766E",
+  rose:   "#9D174D",
+  orange: "#C2410C",
+  indigo: "#4338CA",
+  sky:    "#0369A1",
+  lime:   "#3F6212",
 };
 
 type UserMsg = {

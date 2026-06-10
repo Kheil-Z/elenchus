@@ -14,6 +14,7 @@ import type { MemberPreview } from "@/lib/db";
 import { supabase } from "@/lib/supabase";
 import type { ApiKeyStatus } from "@/lib/api-key";
 import type { UserColor } from "@/lib/types";
+import { PROJECT_EMOJIS } from "@/lib/types";
 import type { Project, Conversation } from "@/lib/types/database";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -38,7 +39,7 @@ async function getToken(): Promise<string | null> {
 
 // ── Shared emoji options ──────────────────────────────────────────────────────
 
-const EMOJI_OPTIONS = ["📁", "🗂️", "💼", "🚀", "💡", "🔬", "📝", "🎯", "⚡", "🌱", "🏗️", "🎨", "📊", "🔒", "🤝", "🧪", "🌍", "🧠", "🎓", "🏆", "🔮", "🧩", "📡", "🛸", "🎪", "🌊", "🔥", "💎"];
+const EMOJI_OPTIONS = PROJECT_EMOJIS;
 
 // ── Rename modal ──────────────────────────────────────────────────────────────
 

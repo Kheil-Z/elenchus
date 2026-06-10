@@ -11,10 +11,16 @@ import type { UserColor } from "@/lib/types";
 
 const COLOR_OPTIONS: { value: UserColor; bg: string; ring: string; label: string }[] = [
   { value: "blue",   bg: "#DBEAFE", ring: "#1D4ED8", label: "Blue"   },
+  { value: "sky",    bg: "#E0F2FE", ring: "#0369A1", label: "Sky"    },
+  { value: "teal",   bg: "#CCFBF1", ring: "#0F766E", label: "Teal"   },
   { value: "green",  bg: "#DCFCE7", ring: "#15803D", label: "Green"  },
-  { value: "purple", bg: "#F3E8FF", ring: "#7E22CE", label: "Purple" },
-  { value: "coral",  bg: "#FEE2E2", ring: "#B91C1C", label: "Coral"  },
+  { value: "lime",   bg: "#ECFCCB", ring: "#3F6212", label: "Lime"   },
   { value: "amber",  bg: "#FEF3C7", ring: "#92400E", label: "Amber"  },
+  { value: "orange", bg: "#FFEDD5", ring: "#C2410C", label: "Orange" },
+  { value: "coral",  bg: "#FEE2E2", ring: "#B91C1C", label: "Coral"  },
+  { value: "rose",   bg: "#FCE7F3", ring: "#9D174D", label: "Rose"   },
+  { value: "purple", bg: "#F3E8FF", ring: "#7E22CE", label: "Purple" },
+  { value: "indigo", bg: "#E0E7FF", ring: "#4338CA", label: "Indigo" },
 ];
 
 export default function SettingsPage() {

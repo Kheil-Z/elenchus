@@ -14,6 +14,12 @@ const bubbleTint: Record<UserColor, { bg: string; border: string }> = {
   purple: { bg: "#FAF5FF", border: "#F3E8FF" },
   coral:  { bg: "#FFF1F2", border: "#FFE4E6" },
   amber:  { bg: "#FFFBEB", border: "#FEF3C7" },
+  teal:   { bg: "#F0FDFA", border: "#CCFBF1" },
+  rose:   { bg: "#FDF2F8", border: "#FCE7F3" },
+  orange: { bg: "#FFF7ED", border: "#FFEDD5" },
+  indigo: { bg: "#EEF2FF", border: "#E0E7FF" },
+  sky:    { bg: "#F0F9FF", border: "#E0F2FE" },
+  lime:   { bg: "#F7FEE7", border: "#ECFCCB" },
 };
 
 const nameColor: Record<UserColor, string> = {
@@ -22,6 +28,12 @@ const nameColor: Record<UserColor, string> = {
   purple: "#7E22CE",
   coral:  "#B91C1C",
   amber:  "#92400E",
+  teal:   "#0F766E",
+  rose:   "#9D174D",
+  orange: "#C2410C",
+  indigo: "#4338CA",
+  sky:    "#0369A1",
+  lime:   "#3F6212",
 };
 
 // ── Document chip ─────────────────────────────────────────────────────────────

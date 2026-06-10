@@ -11,6 +11,7 @@ import { MemberAvatarStack } from "@/components/MemberAvatarStack";
 import { DocPreviewModal } from "@/components/DocPreviewModal";
 import type { MemberPreview } from "@/lib/db";
 import { supabase } from "@/lib/supabase";
+import { PROJECT_EMOJIS } from "@/lib/types";
 import type { UserColor } from "@/lib/types";
 import type { Conversation as DBConversation } from "@/lib/types/database";
 import type { ProjectMemberWithUser } from "@/lib/db";
@@ -76,10 +77,11 @@ interface UnreadConversation {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-const EMOJI_OPTIONS = ["📁", "🗂️", "💼", "🚀", "💡", "🔬", "📝", "🎯", "⚡", "🌱", "🏗️", "🎨", "📊", "🔒", "🤝", "🧪", "🌍", "🧠", "🎓", "🏆", "🔮", "🧩", "📡", "🛸", "🎪", "🌊", "🔥", "💎"];
+const EMOJI_OPTIONS = PROJECT_EMOJIS;
 
 const solidColor: Record<UserColor, string> = {
   blue: "#3B82F6", green: "#22C55E", purple: "#A855F7", coral: "#F87171", amber: "#F59E0B",
+  teal: "#14B8A6", rose: "#EC4899", orange: "#F97316", indigo: "#6366F1", sky: "#0EA5E9", lime: "#84CC16",
 };
 
 function firstName(name: string) { return name.split(" ")[0]; }

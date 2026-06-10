@@ -10,6 +10,12 @@ const sendColor: Record<UserColor, string> = {
   purple: "#A855F7",
   coral:  "#F87171",
   amber:  "#F59E0B",
+  teal:   "#14B8A6",
+  rose:   "#EC4899",
+  orange: "#F97316",
+  indigo: "#6366F1",
+  sky:    "#0EA5E9",
+  lime:   "#84CC16",
 };
 
 interface Member {

@@ -4,11 +4,9 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { supabase } from "@/lib/supabase";
+import { PROJECT_EMOJIS } from "@/lib/types";
 
-const EMOJIS = [
-  "📁", "🎨", "📝", "📊", "🎯", "💡", "🚀", "💼",
-  "🌱", "🔬", "🔧", "📱", "🏗️", "⚡", "🗺️", "🎭",
-];
+const EMOJIS = PROJECT_EMOJIS;
 
 function randomEmoji(): string {
   return EMOJIS[Math.floor(Math.random() * EMOJIS.length)] ?? "📁";
