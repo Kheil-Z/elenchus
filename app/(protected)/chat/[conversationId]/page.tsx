@@ -73,6 +73,7 @@ export default function ChatPage() {
   const [awaitingClaude, setAwaitingClaude] = useState(false);
   const [mentionsOnly, setMentionsOnly] = useState(false);
   const [apiKeyStatus, setApiKeyStatus] = useState<ApiKeyStatus | "loading">("loading");
+  const [sendError, setSendError] = useState<string | null>(null);
   const colorMapRef = useRef<Map<string, UserColor>>(new Map());
   const onlineIdsRef = useRef<Set<string>>(new Set());
 
@@ -235,6 +236,7 @@ export default function ChatPage() {
     if (!session) return;
 
     setSending(true);
+    setSendError(null);
 
     // Upload attached files in parallel; collect successful docs
     let uploadedDocs: ChatDocument[] = [];
@@ -267,14 +269,20 @@ export default function ChatPage() {
         });
         if (!res.ok) {
           const rawText = await res.text().catch(() => "");
-          let parsed: unknown = {};
-          try { parsed = JSON.parse(rawText); } catch { /* not JSON */ }
-          console.error("Send failed:", res.status, rawText);
+          let errorMsg = "Something went wrong. Please try again.";
+          try {
+            const parsed = JSON.parse(rawText) as { error?: string };
+            if (parsed.error) errorMsg = parsed.error;
+          } catch { /* not JSON */ }
+          if (errorMsg.toLowerCase().includes("api key") || errorMsg.toLowerCase().includes("no key")) {
+            errorMsg = "No API key set — add one in settings to use @claude.";
+          }
+          setSendError(errorMsg);
           setAwaitingClaude(false);
-          void parsed; // suppress unused warning
         }
       } catch (err) {
         console.error("Send error:", err);
+        setSendError("Failed to send — check your connection.");
         setAwaitingClaude(false);
       }
     }
@@ -346,6 +354,23 @@ export default function ChatPage() {
         sending={awaitingClaude}
         mentionsOnly={mentionsOnly}
       />
+      {sendError && (
+        <div className="mx-4 mb-2 flex items-center gap-2.5 bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-sm">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="shrink-0">
+            <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.3" />
+            <path d="M7 4.5v3M7 9.5v.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+          <span className="flex-1">{sendError}</span>
+          {sendError.includes("settings") && (
+            <a href="/settings" className="underline underline-offset-2 font-medium hover:opacity-70 transition-opacity shrink-0">
+              Settings
+            </a>
+          )}
+          <button onClick={() => setSendError(null)} aria-label="Dismiss" className="shrink-0 text-red-400 hover:text-red-700 transition-colors">
+            ×
+          </button>
+        </div>
+      )}
       <InputBar
         currentUser={{ name: currentUserName, color: currentUserColor }}
         members={chatMembers}

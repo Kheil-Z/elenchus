@@ -1300,11 +1300,11 @@ function CatchUpTab({ projectId, currentUser }: { projectId: string; currentUser
 type Tab = "catchup" | "conversations" | "documents" | "members" | "activity";
 
 const TABS: { id: Tab; label: string }[] = [
+  { id: "catchup",       label: "Catch up"      },
   { id: "conversations", label: "Conversations" },
   { id: "documents",     label: "Documents"     },
   { id: "members",       label: "Members"       },
   { id: "activity",      label: "Activity"      },
-  { id: "catchup",       label: "Catch up"      },
 ];
 
 function mapMember(m: ProjectMemberWithUser): Member {
@@ -1338,7 +1338,8 @@ export default function ProjectPage() {
   const currentUser = profile?.display_name ?? user?.email ?? "";
   const currentUserId = user?.id ?? "";
 
-  const [activeTab, setActiveTab] = useState<Tab>("conversations");
+  const [activeTab, setActiveTab] = useState<Tab>("catchup");
+  const [catchupBadge, setCatchupBadge] = useState(0);
   const [navOpen, setNavOpen] = useState(true);
   const [isOwner, setIsOwner] = useState(false);
   const [projectName, setProjectName] = useState("");
@@ -1431,6 +1432,22 @@ export default function ProjectPage() {
             });
         }
       }
+    });
+  }, [projectId, user]);
+
+  useEffect(() => {
+    if (!user) return;
+    getToken().then((token) => {
+      if (!token) return;
+      fetch(`/api/projects/${projectId}/catchup?peek=1`, { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => r.json())
+        .then((json) => {
+          if (json.success) {
+            const total = (json.mentions?.length ?? 0) + (json.unread?.length ?? 0);
+            setCatchupBadge(total);
+          }
+        })
+        .catch(() => {});
     });
   }, [projectId, user]);
 
@@ -1694,7 +1711,7 @@ export default function ProjectPage() {
               {TABS.map((tab) => (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => { setActiveTab(tab.id); if (tab.id === "catchup") setCatchupBadge(0); }}
                   className="flex items-center gap-1.5 pb-3 pt-3.5 text-sm font-medium border-b-2 transition-colors shrink-0"
                   style={
                     activeTab === tab.id
@@ -1703,6 +1720,11 @@ export default function ProjectPage() {
                   }
                 >
                   {tab.label}
+                  {tab.id === "catchup" && catchupBadge > 0 && (
+                    <span className="text-[10px] font-semibold bg-blue-500 text-white rounded-full px-1.5 py-px leading-none">
+                      {catchupBadge}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>

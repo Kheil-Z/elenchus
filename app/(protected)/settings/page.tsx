@@ -24,7 +24,7 @@ const COLOR_OPTIONS: { value: UserColor; bg: string; ring: string; label: string
 ];
 
 export default function SettingsPage() {
-  const { profile, user } = useAuth();
+  const { profile, user, refreshProfile } = useAuth();
   const [keyInput, setKeyInput] = useState("");
   const [status, setStatus] = useState<ApiKeyStatus | "loading">("loading");
   const [isEditing, setIsEditing] = useState(false);
@@ -56,6 +56,7 @@ export default function SettingsPage() {
     if (error) {
       setColorFeedback("Failed to save — try again");
     } else {
+      await refreshProfile();
       setColorFeedback("Saved!");
       setTimeout(() => setColorFeedback(null), 2000);
     }

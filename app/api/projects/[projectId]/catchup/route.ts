@@ -23,6 +23,7 @@ export async function GET(
   if (!user) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
 
   const { projectId } = await params;
+  const peek = req.nextUrl.searchParams.get("peek") === "1";
 
   // Verify membership + get display name for mention search
   const { data: memberData } = await supabaseAdmin
@@ -117,10 +118,12 @@ export async function GET(
       .slice(0, 10);
   }
 
-  // Update last_seen_at to now
-  await supabaseAdmin
-    .from("project_member_state")
-    .upsert({ project_id: projectId, user_id: user.id, last_seen_at: new Date().toISOString() } as never);
+  // Update last_seen_at to now (skip on peek — badge fetch shouldn't mark as read)
+  if (!peek) {
+    await supabaseAdmin
+      .from("project_member_state")
+      .upsert({ project_id: projectId, user_id: user.id, last_seen_at: new Date().toISOString() } as never);
+  }
 
   return NextResponse.json({ success: true, lastSeenAt, mentions, unread });
 }
