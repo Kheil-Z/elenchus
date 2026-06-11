@@ -25,7 +25,10 @@ export async function PATCH(
 
   const { documentId } = await params;
   const body = await req.json().catch(() => ({}));
-  const conversationId: string | null = body.conversationId ?? null;
+  if (body.conversationId !== undefined && body.conversationId !== null && typeof body.conversationId !== "string") {
+    return NextResponse.json({ success: false, error: "conversationId must be a string or null" }, { status: 400 });
+  }
+  const conversationId: string | null = body.conversationId ? String(body.conversationId) : null;
 
   // Get the document to verify ownership / project
   const { data: doc } = await supabaseAdmin
