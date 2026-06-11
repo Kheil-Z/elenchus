@@ -71,9 +71,7 @@ export async function POST(req: NextRequest) {
     .from("conversations")
     .select("*")
     .eq("id", conversationId)
-    .single();
-
-  if (convError || !convRaw) return err("Conversation not found", 403);
+  if (convError || !convRaw) return err("Conversation not found", 404);
   const conversation = convRaw as Conversation;
 
   const member = await isProjectMember(conversation.project_id, user.id);
