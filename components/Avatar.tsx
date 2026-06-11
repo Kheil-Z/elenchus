@@ -6,6 +6,12 @@ const colorMap: Record<UserColor, { bg: string; text: string }> = {
   purple: { bg: "#F3E8FF", text: "#7E22CE" },
   coral:  { bg: "#FEE2E2", text: "#B91C1C" },
   amber:  { bg: "#FEF3C7", text: "#92400E" },
+  teal:   { bg: "#CCFBF1", text: "#0F766E" },
+  rose:   { bg: "#FCE7F3", text: "#9D174D" },
+  orange: { bg: "#FFEDD5", text: "#C2410C" },
+  indigo: { bg: "#E0E7FF", text: "#4338CA" },
+  sky:    { bg: "#E0F2FE", text: "#0369A1" },
+  lime:   { bg: "#ECFCCB", text: "#3F6212" },
 };
 
 const sizeClasses = {
@@ -24,10 +30,11 @@ interface AvatarProps {
 }
 
 export function Avatar({ name, color, size = "md", className = "", showOnline }: AvatarProps) {
-  const { bg, text } = colorMap[color];
-  const initials = name
+  const { bg, text } = (colorMap[color] ?? colorMap.blue);
+  const initials = (name || "?")
     .split(" ")
     .map((n) => n[0])
+    .filter(Boolean)
     .join("")
     .slice(0, 2)
     .toUpperCase();

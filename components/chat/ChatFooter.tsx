@@ -12,7 +12,17 @@ export function ChatFooter({ tokenCount, model, apiKeySet }: ChatFooterProps) {
           className="w-1.5 h-1.5 rounded-full shrink-0"
           style={{ backgroundColor: apiKeySet ? "#4ADE80" : "#F87171" }}
         />
-        {apiKeySet ? "API key set" : "No API key — set one to send"}
+        {apiKeySet ? "API key set" : (
+          <>
+            No API key set
+            <a
+              href="/settings"
+              className="ml-1.5 underline underline-offset-2 hover:opacity-70 transition-opacity"
+            >
+              Set one
+            </a>
+          </>
+        )}
       </span>
 
       <span className="text-border select-none">·</span>

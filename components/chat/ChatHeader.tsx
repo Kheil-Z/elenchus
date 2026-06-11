@@ -1,18 +1,61 @@
+"use client";
+
+import { useState, useRef } from "react";
 import Link from "next/link";
+import { useAuth } from "@/lib/auth-context";
+import { Avatar } from "@/components/Avatar";
+import type { UserColor } from "@/lib/types";
 
 interface ChatHeaderProps {
   title: string;
   projectName: string;
+  projectId?: string;
   navOpen?: boolean;
   onToggleNav?: () => void;
   sidebarOpen?: boolean;
   onToggleSidebar?: () => void;
+  onRenameTitle?: (newName: string) => Promise<void>;
 }
 
-export function ChatHeader({ title, projectName, navOpen, onToggleNav, sidebarOpen, onToggleSidebar }: ChatHeaderProps) {
+export function ChatHeader({
+  title,
+  projectName,
+  projectId,
+  navOpen,
+  onToggleNav,
+  sidebarOpen,
+  onToggleSidebar,
+  onRenameTitle,
+}: ChatHeaderProps) {
+  const { profile, user } = useAuth();
+  const displayName = profile?.display_name ?? user?.email ?? "";
+  const displayColor = (profile?.color as UserColor) ?? "blue";
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function startEdit() {
+    if (!onRenameTitle) return;
+    setDraft(title);
+    setEditing(true);
+    setTimeout(() => inputRef.current?.select(), 0);
+  }
+
+  async function saveEdit() {
+    const trimmed = draft.trim();
+    if (!trimmed || trimmed === title || saving || !onRenameTitle) { setEditing(false); return; }
+    setSaving(true);
+    await onRenameTitle(trimmed);
+    setSaving(false);
+    setEditing(false);
+  }
+
+  const projectHref = projectId ? `/project/${projectId}` : "/";
+
   return (
     <header className="h-14 border-b border-border bg-surface flex items-center px-5 gap-3 shrink-0">
-      {/* Nav toggle */}
       {onToggleNav && (
         <button
           onClick={onToggleNav}
@@ -27,7 +70,7 @@ export function ChatHeader({ title, projectName, navOpen, onToggleNav, sidebarOp
       )}
 
       <Link
-        href="/"
+        href={projectHref}
         className="flex items-center gap-1.5 text-sm text-muted hover:text-foreground transition-colors shrink-0"
       >
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -38,9 +81,30 @@ export function ChatHeader({ title, projectName, navOpen, onToggleNav, sidebarOp
 
       <span className="text-border text-sm select-none">/</span>
 
-      <h1 className="text-sm font-medium text-foreground flex-1 truncate">{title}</h1>
+      {editing ? (
+        <input
+          ref={inputRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); saveEdit(); }
+            if (e.key === "Escape") setEditing(false);
+          }}
+          onBlur={saveEdit}
+          disabled={saving}
+          maxLength={120}
+          className="text-sm font-medium text-foreground bg-transparent border-b border-foreground/40 focus:outline-none focus:border-foreground flex-1 min-w-0 disabled:opacity-50"
+        />
+      ) : (
+        <button
+          onClick={onRenameTitle ? startEdit : undefined}
+          title={onRenameTitle ? "Click to rename" : undefined}
+          className={`text-sm font-medium text-foreground flex-1 truncate text-left ${onRenameTitle ? "hover:opacity-70 transition-opacity" : "cursor-default"}`}
+        >
+          {title}
+        </button>
+      )}
 
-      {/* Sidebar toggle */}
       {onToggleSidebar && (
         <button
           onClick={onToggleSidebar}
@@ -52,33 +116,19 @@ export function ChatHeader({ title, projectName, navOpen, onToggleNav, sidebarOp
           <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
             <rect x="1" y="1.5" width="13" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
             <line x1="9.5" y1="1.5" x2="9.5" y2="13.5" stroke="currentColor" strokeWidth="1.2" />
-            {sidebarOpen && (
-              <path d="M11.5 6.5L12.5 7.5L11.5 8.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-            )}
-            {!sidebarOpen && (
-              <path d="M12.5 6.5L11.5 7.5L12.5 8.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-            )}
+            {sidebarOpen
+              ? <path d="M11.5 6.5L12.5 7.5L11.5 8.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+              : <path d="M12.5 6.5L11.5 7.5L12.5 8.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+            }
           </svg>
         </button>
       )}
 
-      <button
-        aria-label="Settings"
-        className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-background transition-colors text-muted hover:text-foreground shrink-0"
-      >
-        <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-          <path
-            d="M7.5 9.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"
-            stroke="currentColor"
-            strokeWidth="1.2"
-          />
-          <path
-            d="M12.2 9.2a1 1 0 0 0 .2 1.1l.04.04a1.2 1.2 0 0 1-1.7 1.7l-.04-.04a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V13a1.2 1.2 0 0 1-2.4 0v-.06a1 1 0 0 0-.65-.91 1 1 0 0 0-1.1.2l-.04.04a1.2 1.2 0 0 1-1.7-1.7l.04-.04a1 1 0 0 0 .2-1.1 1 1 0 0 0-.92-.6H2a1.2 1.2 0 0 1 0-2.4h.06a1 1 0 0 0 .91-.65 1 1 0 0 0-.2-1.1l-.04-.04a1.2 1.2 0 0 1 1.7-1.7l.04.04a1 1 0 0 0 1.1.2h.05A1 1 0 0 0 6.2 2V2a1.2 1.2 0 0 1 2.4 0v.06a1 1 0 0 0 .6.92 1 1 0 0 0 1.1-.2l.04-.04a1.2 1.2 0 0 1 1.7 1.7l-.04.04a1 1 0 0 0-.2 1.1v.05a1 1 0 0 0 .92.6H13a1.2 1.2 0 0 1 0 2.4h-.06a1 1 0 0 0-.74.57Z"
-            stroke="currentColor"
-            strokeWidth="1.2"
-          />
-        </svg>
-      </button>
+      {displayName && (
+        <div className="shrink-0">
+          <Avatar name={displayName} color={displayColor} size="sm" />
+        </div>
+      )}
     </header>
   );
 }

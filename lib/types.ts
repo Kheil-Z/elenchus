@@ -1,4 +1,11 @@
-export type UserColor = "blue" | "green" | "purple" | "coral" | "amber";
+export type UserColor = "blue" | "green" | "purple" | "coral" | "amber" | "teal" | "rose" | "orange" | "indigo" | "sky" | "lime";
+
+export const PROJECT_EMOJIS = [
+  "📁", "🗂️", "💼", "🚀", "💡", "🔬", "📝", "🎯",
+  "⚡", "🌱", "🏗️", "🎨", "📊", "🔒", "🤝", "🧪",
+  "🌍", "🧠", "🎓", "🏆", "🔮", "🧩", "📡", "🛸",
+  "🎪", "🌊", "🔥", "💎",
+];
 
 export interface ProjectMember {
   user_id: string;
