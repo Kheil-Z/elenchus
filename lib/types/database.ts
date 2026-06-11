@@ -133,6 +133,21 @@ export type Database = {
         Insert: Omit<Message, "id" | "created_at"> & { id?: string; created_at?: string };
         Update: Partial<Omit<Message, "id">>;
       };
+      documents: {
+        Row: Document;
+        Insert: Omit<Document, "id" | "created_at"> & { id?: string; created_at?: string };
+        Update: Partial<Omit<Document, "id">>;
+      };
+      activity_log: {
+        Row: ActivityLog;
+        Insert: Omit<ActivityLog, "id" | "created_at"> & { id?: string; created_at?: string };
+        Update: Partial<Omit<ActivityLog, "id">>;
+      };
+      project_member_state: {
+        Row: ProjectMemberState;
+        Insert: ProjectMemberState;
+        Update: Partial<ProjectMemberState>;
+      };
     };
   };
 };
