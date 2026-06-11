@@ -57,6 +57,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
   }
 
+  const { data: profileData } = await supabaseAdmin
+    .from("users")
+    .select("display_name")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  const displayName =
+    (profileData as unknown as { display_name: string | null } | null)?.display_name ??
+    user.email ??
+    "Unknown";
+
   const insertRaw = await supabaseAdmin
     .from("messages")
     .insert({
@@ -64,7 +75,7 @@ export async function POST(req: NextRequest) {
       role: "user",
       content: content.trim(),
       author_user_id: user.id,
-      author_display_name: authorDisplayName ?? "Unknown",
+      author_display_name: displayName,
       caller_user_id: null,
       payer_user_id: null,
       model_used: null,
