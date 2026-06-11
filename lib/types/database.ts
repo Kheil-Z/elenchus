@@ -73,6 +73,7 @@ export interface Message {
 export interface Document {
   id: string;
   project_id: string;
+  conversation_id: string | null;
   name: string;
   storage_path: string;
   size_bytes: number;
