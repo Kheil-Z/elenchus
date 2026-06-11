@@ -51,11 +51,7 @@ export async function GET(
 
   const TTL = 60 * 60; // 1 hour
 
-  const [{ data: previewData, error: prevErr }, { data: dlData, error: dlErr }, { data: uploaderProfile }] = await Promise.all([
-    supabaseAdmin.storage.from("documents").createSignedUrl(d.storage_path, TTL),
-    supabaseAdmin.storage.from("documents").createSignedUrl(d.storage_path, TTL, { download: d.name }),
-    supabaseAdmin.from("profiles").select("display_name").eq("user_id", d.uploaded_by).single(),
-  ]);
+    supabaseAdmin.from("users").select("display_name").eq("id", d.uploaded_by).single(),
 
   if (prevErr || dlErr || !previewData || !dlData) {
     return NextResponse.json({ success: false, error: "Failed to generate signed URL" }, { status: 500 });
