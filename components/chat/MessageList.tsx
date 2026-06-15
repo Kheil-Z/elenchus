@@ -1,6 +1,8 @@
 "use client";
 
 import { useRef, useEffect, useState } from "react";
+import { MarkdownHooks as Markdown } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { ChatMessage, ContentSegment } from "@/lib/chat-types";
 import type { UserColor } from "@/lib/types";
 import { Avatar } from "@/components/Avatar";
@@ -146,6 +148,45 @@ function renderSegments(segments: ContentSegment[], onDocPreview?: (doc: DocPrev
 
 // ── Individual message ────────────────────────────────────────────────────────
 
+function MarkdownContent({ content }: { content: string }) {
+  return (
+    <Markdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        p:          ({ children }) => <p className="mb-3 last:mb-0 leading-relaxed">{children}</p>,
+        h1:         ({ children }) => <h1 className="text-base font-bold mt-4 mb-2 first:mt-0">{children}</h1>,
+        h2:         ({ children }) => <h2 className="text-sm font-bold mt-3 mb-1.5 first:mt-0">{children}</h2>,
+        h3:         ({ children }) => <h3 className="text-sm font-semibold mt-3 mb-1 first:mt-0">{children}</h3>,
+        ul:         ({ children }) => <ul className="list-disc list-outside pl-4 mb-3 last:mb-0 space-y-1">{children}</ul>,
+        ol:         ({ children }) => <ol className="list-decimal list-outside pl-4 mb-3 last:mb-0 space-y-1">{children}</ol>,
+        li:         ({ children }) => <li className="leading-relaxed">{children}</li>,
+        strong:     ({ children }) => <strong className="font-semibold">{children}</strong>,
+        em:         ({ children }) => <em className="italic">{children}</em>,
+        hr:         ()             => <hr className="border-t border-black/10 my-3" />,
+        blockquote: ({ children }) => <blockquote className="border-l-2 border-foreground/20 pl-3 text-muted italic mb-3 last:mb-0">{children}</blockquote>,
+        a:          ({ href, children }) => (
+          <a href={href ?? "#"} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:opacity-70 transition-opacity">
+            {children}
+          </a>
+        ),
+        pre: ({ children }) => (
+          <pre className="bg-black/[0.06] border border-black/[0.07] rounded-lg px-3 py-2.5 overflow-x-auto text-xs font-mono my-3 whitespace-pre">
+            {children}
+          </pre>
+        ),
+        code: ({ className, children }) => {
+          if (className?.startsWith("language-") || String(children).includes("\n")) {
+            return <code className={className}>{children}</code>;
+          }
+          return <code className="bg-black/[0.07] rounded px-1 py-0.5 text-[0.85em] font-mono">{children}</code>;
+        },
+      }}
+    >
+      {content}
+    </Markdown>
+  );
+}
+
 function MessageBubble({ msg, isYou, onDocPreview }: { msg: ChatMessage; isYou: boolean; onDocPreview?: (doc: DocPreviewArg) => void }) {
   const isAssistant = msg.role === "assistant";
 
@@ -156,11 +197,11 @@ function MessageBubble({ msg, isYou, onDocPreview }: { msg: ChatMessage; isYou: 
           className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-semibold select-none"
           style={{ backgroundColor: "#E8E5E0", color: "#6b6b6b" }}
         >
-          Cl
+          {msg.authorName.slice(0, 2)}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex flex-row-reverse items-baseline gap-2 mb-2">
-            <span className="text-[13px] font-semibold text-foreground">Claude</span>
+            <span className="text-[13px] font-semibold text-foreground">{msg.authorName}</span>
             {msg.modelUsed && (
               <span className="text-[10px] text-muted border border-border rounded px-1.5 py-px">
                 {msg.modelUsed}
@@ -174,10 +215,15 @@ function MessageBubble({ msg, isYou, onDocPreview }: { msg: ChatMessage; isYou: 
             )}
           </div>
           <div
-            className="rounded-2xl rounded-tr-sm px-4 py-3 text-sm leading-relaxed text-foreground"
+            className="rounded-2xl rounded-tr-sm px-4 py-3 text-sm text-foreground"
             style={{ backgroundColor: "#F1F0EE", border: "1px solid #E2E0DC" }}
           >
-            {renderSegments(msg.segments, onDocPreview)}
+            <MarkdownContent
+              content={msg.segments
+                .filter((s): s is { type: "text"; text: string } => s.type === "text")
+                .map((s) => s.text)
+                .join("")}
+            />
           </div>
         </div>
       </div>
@@ -198,10 +244,12 @@ function MessageBubble({ msg, isYou, onDocPreview }: { msg: ChatMessage; isYou: 
           <span className="text-[11px] text-muted">{msg.timestamp}</span>
         </div>
         <div
-          className="rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed text-foreground"
+          className="rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-foreground"
           style={{ backgroundColor: tint.bg, border: `1px solid ${tint.border}` }}
         >
-          {renderSegments(msg.segments, onDocPreview)}
+          {msg.segments.some((s) => s.type === "doc")
+            ? renderSegments(msg.segments, onDocPreview)
+            : <MarkdownContent content={msg.segments.filter((s): s is { type: "text"; text: string } => s.type === "text").map((s) => s.text).join("")} />}
         </div>
       </div>
     </div>
@@ -216,6 +264,7 @@ interface MessageListProps {
   loading?: boolean;
   sending?: boolean;
   mentionsOnly?: boolean;
+  aiName?: string;
 }
 
 function messageContainsMention(msg: ChatMessage, name: string): boolean {
@@ -225,7 +274,7 @@ function messageContainsMention(msg: ChatMessage, name: string): boolean {
   );
 }
 
-export function MessageList({ messages, currentUserName, loading, sending, mentionsOnly }: MessageListProps) {
+export function MessageList({ messages, currentUserName, loading, sending, mentionsOnly, aiName = "AI" }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [docPreview, setDocPreview] = useState<DocPreviewArg | null>(null);
 
@@ -273,11 +322,11 @@ export function MessageList({ messages, currentUserName, loading, sending, menti
               className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-semibold select-none"
               style={{ backgroundColor: "#E8E5E0", color: "#6b6b6b" }}
             >
-              Cl
+              {aiName.slice(0, 2)}
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex flex-row-reverse items-baseline gap-2 mb-2">
-                <span className="text-[13px] font-semibold text-foreground">Claude</span>
+                <span className="text-[13px] font-semibold text-foreground">{aiName}</span>
               </div>
               <div
                 className="rounded-2xl rounded-tr-sm px-4 py-3 text-sm text-muted w-fit"

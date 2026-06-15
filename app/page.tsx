@@ -125,16 +125,16 @@ const HOW_IT_WORKS = [
   {
     step: "01",
     title: "Bring your own key",
-    body: "Each person connects their Anthropic API key. Keys stay in your browser — never on our servers.",
+    body: "Each person adds their AI provider API key (Anthropic or Gemini). Keys are encrypted and stored server-side — never in your browser.",
   },
   {
     step: "02",
     title: "Share a thread",
-    body: "Invite collaborators to a project. Every message is attributed — Claude always knows who said what.",
+    body: "Invite collaborators to a project. Every message is attributed — the AI always knows who said what.",
   },
   {
     step: "03",
-    title: "Call Claude together",
+    title: "Call the AI together",
     body: "Type @claude to trigger a response. Each call goes out under the sender's own key. Pay only for what you use.",
   },
 ];
@@ -171,7 +171,7 @@ export default function Home() {
               placeholder so the row width never changes and Elenchus never shifts.
             */}
             <p className="font-serif text-[40px] leading-none text-foreground tracking-tight mb-[10px] whitespace-nowrap">
-              Collaborate on Claude{" "}
+              Collaborate on AI{" "}
               <span className="relative inline-block">
                 <span className="invisible select-none pointer-events-none" aria-hidden="true">
                   conversations
@@ -186,7 +186,7 @@ export default function Home() {
           {/* Row 2: explanation */}
           <p className="text-[15px] text-muted leading-relaxed w-full max-w-xl">
             Multiple people, one shared thread — each using their own API key.
-            Claude sees who said what, tracks costs per person, and speaks only
+            The AI sees who said what, tracks costs per person, and speaks only
             when called.
           </p>
 

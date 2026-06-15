@@ -19,22 +19,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: { apiKey?: string };
+  let body: { apiKey?: string; provider?: string };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ success: false, error: "Invalid request body" }, { status: 400 });
   }
 
-  const { apiKey } = body;
+  const { apiKey, provider } = body;
   if (!apiKey?.trim()) {
     return NextResponse.json({ success: false, error: "apiKey is required" }, { status: 400 });
   }
-  if (!apiKey.trim().startsWith("sk-ant-")) {
-    return NextResponse.json({
-      success: false,
-      error: "Invalid key format. Anthropic API keys start with sk-ant-",
-    }, { status: 400 });
+  if (provider !== "anthropic" && provider !== "gemini") {
+    return NextResponse.json({ success: false, error: "provider must be 'anthropic' or 'gemini'" }, { status: 400 });
+  }
+
+  const { validateApiKey } = await import("@/lib/api-key");
+  const validationError = validateApiKey(apiKey.trim(), provider);
+  if (validationError) {
+    return NextResponse.json({ success: false, error: validationError }, { status: 400 });
   }
 
   let encrypted: string;
@@ -66,7 +69,7 @@ export async function POST(req: NextRequest) {
 
   const { error: updateError } = await supabaseAdmin
     .from("users")
-    .update({ anthropic_api_key_encrypted: encrypted } as never)
+    .update({ llm_provider: provider, llm_api_key_encrypted: encrypted } as never)
     .eq("id", user.id);
 
   if (updateError) {

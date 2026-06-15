@@ -127,3 +127,29 @@ export async function GET(
 
   return NextResponse.json({ success: true, lastSeenAt, mentions, unread });
 }
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ projectId: string }> }
+) {
+  const user = await authenticate(req);
+  if (!user) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+
+  const { projectId } = await params;
+
+  const { data: memberData } = await supabaseAdmin
+    .from("project_members")
+    .select("user_id")
+    .eq("project_id", projectId)
+    .eq("user_id", user.id)
+    .eq("status", "active")
+    .single();
+
+  if (!memberData) return NextResponse.json({ success: false, error: "Not a project member" }, { status: 403 });
+
+  await supabaseAdmin
+    .from("project_member_state")
+    .upsert({ project_id: projectId, user_id: user.id, last_seen_at: new Date().toISOString() } as never);
+
+  return NextResponse.json({ success: true });
+}

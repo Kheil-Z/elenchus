@@ -6,8 +6,43 @@ import { Avatar } from "@/components/Avatar";
 import { saveApiKey, revokeApiKey, getApiKeyStatus } from "@/lib/api-key";
 import { updateUserProfile } from "@/lib/db";
 import { useAuth } from "@/lib/auth-context";
-import type { ApiKeyStatus } from "@/lib/api-key";
+import { PROVIDER_DISPLAY_NAME } from "@/lib/llm";
+import type { ApiKeyStatus, LLMProvider } from "@/lib/api-key";
 import type { UserColor } from "@/lib/types";
+
+const PROVIDER_OPTIONS: {
+  value: LLMProvider;
+  label: string;
+  description: string;
+  placeholder: string;
+  consoleUrl: string;
+  consoleName: string;
+}[] = [
+  {
+    value: "anthropic",
+    label: "Anthropic",
+    description: "Claude models",
+    placeholder: "sk-ant-...",
+    consoleUrl: "https://console.anthropic.com/settings/keys",
+    consoleName: "console.anthropic.com",
+  },
+  {
+    value: "gemini",
+    label: "Google Gemini",
+    description: "Gemini models",
+    placeholder: "Paste your API key…",
+    consoleUrl: "https://aistudio.google.com/app/apikey",
+    consoleName: "aistudio.google.com",
+  },
+  {
+    value: "openai",
+    label: "OpenAI",
+    description: "GPT models",
+    placeholder: "sk-...",
+    consoleUrl: "https://platform.openai.com/api-keys",
+    consoleName: "platform.openai.com",
+  },
+];
 
 const COLOR_OPTIONS: { value: UserColor; bg: string; ring: string; label: string }[] = [
   { value: "blue",   bg: "#DBEAFE", ring: "#1D4ED8", label: "Blue"   },
@@ -27,6 +62,8 @@ export default function SettingsPage() {
   const { profile, user, refreshProfile } = useAuth();
   const [keyInput, setKeyInput] = useState("");
   const [status, setStatus] = useState<ApiKeyStatus | "loading">("loading");
+  const [selectedProvider, setSelectedProvider] = useState<LLMProvider>("anthropic");
+  const [storedProvider,  setStoredProvider]  = useState<LLMProvider | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [revoking, setRevoking] = useState(false);
@@ -41,8 +78,9 @@ export default function SettingsPage() {
   }, [profile?.color]);
 
   useEffect(() => {
-    getApiKeyStatus().then((s) => {
+    getApiKeyStatus().then(({ status: s, provider }) => {
       setStatus(s);
+      if (provider) { setSelectedProvider(provider); setStoredProvider(provider); }
       if (s === "not_set" || s === "error") setIsEditing(true);
     });
   }, []);
@@ -69,12 +107,13 @@ export default function SettingsPage() {
   async function handleSave() {
     clearFeedback();
     setSaving(true);
-    const { error } = await saveApiKey(keyInput.trim());
+    const { error } = await saveApiKey(keyInput.trim(), selectedProvider);
     setSaving(false);
     if (error) {
       setFeedback({ type: "error", message: error });
     } else {
       setStatus("active");
+      setStoredProvider(selectedProvider);
       setKeyInput("");
       setIsEditing(false);
       setFeedback({ type: "success", message: "API key saved." });
@@ -90,6 +129,7 @@ export default function SettingsPage() {
       setFeedback({ type: "error", message: error });
     } else {
       setStatus("not_set");
+      setStoredProvider(null);
       setIsEditing(true);
       setFeedback({ type: "success", message: "API key revoked." });
     }
@@ -163,55 +203,85 @@ export default function SettingsPage() {
             </div>
           </section>
 
-          {/* API Keys section */}
+          {/* AI Provider section */}
           <section className="bg-surface border border-border rounded-xl divide-y divide-border">
-            {/* Section header */}
             <div className="px-6 py-5">
-              <h2 className="font-medium text-foreground text-base">Anthropic API Key</h2>
+              <h2 className="font-medium text-foreground text-base">AI Provider</h2>
               <p className="text-sm text-muted mt-0.5">
-                Used to call Claude on your behalf when you trigger a response.
+                Choose your provider and add your API key. Used when you trigger an AI response.
               </p>
             </div>
 
-            {/* Status + key display */}
+            {/* Provider picker */}
+            <div className="px-6 py-5 flex flex-col gap-3">
+              <p className="text-sm font-medium text-foreground">Provider</p>
+              <div className="grid grid-cols-3 gap-3">
+                {PROVIDER_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => { setSelectedProvider(opt.value); clearFeedback(); setKeyInput(""); }}
+                    className={`flex flex-col gap-0.5 text-left px-4 py-3 rounded-xl border transition-all ${
+                      selectedProvider === opt.value
+                        ? "border-foreground/40 bg-background shadow-sm"
+                        : "border-border hover:border-foreground/20"
+                    }`}
+                  >
+                    <span className="text-sm font-medium text-foreground">{opt.label}</span>
+                    <span className="text-xs text-muted">{opt.description}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Status + update trigger */}
             <div className="px-6 py-4 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <span className="text-sm text-muted w-16 shrink-0">Status</span>
                 {status === "loading" ? (
                   <span className="text-sm text-muted">Checking…</span>
                 ) : (
                   <StatusBadge status={status} />
                 )}
+                {hasKey && storedProvider && (
+                  <span className="text-xs text-muted px-2 py-0.5 rounded-md bg-background border border-border">
+                    {PROVIDER_DISPLAY_NAME[storedProvider]}
+                  </span>
+                )}
               </div>
-
-              {/* When key is set and not editing, show Update button */}
               {hasKey && !isEditing && (
                 <button
                   onClick={() => { setIsEditing(true); clearFeedback(); }}
-                  className="text-xs text-muted border border-border px-3 py-1.5 rounded-lg hover:text-foreground hover:border-foreground/30 transition-colors"
+                  className="text-xs text-muted border border-border px-3 py-1.5 rounded-lg hover:text-foreground hover:border-foreground/30 transition-colors shrink-0"
                 >
                   Update key
                 </button>
               )}
             </div>
 
-            {/* Edit form — shown when editing or no key set */}
+            {/* Key input form */}
             {(isEditing || !hasKey) && status !== "loading" && (
               <div className="px-6 py-5 flex flex-col gap-3">
-                <label htmlFor="api-key-input" className="text-sm font-medium text-foreground">
-                  {hasKey ? "Replace API key" : "Add API key"}
-                </label>
-                <input
-                  id="api-key-input"
-                  type="password"
-                  value={keyInput}
-                  onChange={(e) => { setKeyInput(e.target.value); clearFeedback(); }}
-                  placeholder="sk-ant-..."
-                  autoComplete="off"
-                  spellCheck={false}
-                  autoFocus={isEditing && hasKey}
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-foreground/20 font-mono"
-                />
+                {(() => {
+                  const opt = PROVIDER_OPTIONS.find((o) => o.value === selectedProvider)!;
+                  return (
+                    <>
+                      <label htmlFor="api-key-input" className="text-sm font-medium text-foreground">
+                        {hasKey ? `Replace ${opt.label} API key` : `Add ${opt.label} API key`}
+                      </label>
+                      <input
+                        id="api-key-input"
+                        type="password"
+                        value={keyInput}
+                        onChange={(e) => { setKeyInput(e.target.value); clearFeedback(); }}
+                        placeholder={opt.placeholder}
+                        autoComplete="off"
+                        spellCheck={false}
+                        autoFocus={isEditing && hasKey}
+                        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-foreground/20 font-mono"
+                      />
+                    </>
+                  );
+                })()}
 
                 {feedback && (
                   <p className={`text-sm ${feedback.type === "success" ? "text-green-700" : "text-red-600"}`}>
@@ -225,9 +295,8 @@ export default function SettingsPage() {
                     disabled={saving || !keyInput.trim()}
                     className="text-sm font-medium bg-foreground text-surface px-4 py-2 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    {saving ? "Saving…" : "Save API Key"}
+                    {saving ? "Saving…" : "Save API key"}
                   </button>
-
                   {hasKey && isEditing && (
                     <button
                       onClick={() => { setIsEditing(false); setKeyInput(""); clearFeedback(); }}
@@ -240,7 +309,6 @@ export default function SettingsPage() {
               </div>
             )}
 
-            {/* Success feedback shown outside the form (after save) */}
             {!isEditing && hasKey && feedback && (
               <div className="px-6 py-3">
                 <p className={`text-sm ${feedback.type === "success" ? "text-green-700" : "text-red-600"}`}>
@@ -249,13 +317,13 @@ export default function SettingsPage() {
               </div>
             )}
 
-            {/* Revoke — only when key is active */}
+            {/* Revoke */}
             {hasKey && (
               <div className="px-6 py-4 flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-foreground">Revoke API key</p>
                   <p className="text-xs text-muted mt-0.5">
-                    Removes your key from the server. Claude calls will stop working.
+                    Removes your key from the server. AI responses will stop working.
                   </p>
                 </div>
                 <button
@@ -270,37 +338,42 @@ export default function SettingsPage() {
 
             {/* Info box */}
             <div className="px-6 py-5">
-              <div className="bg-background border border-border rounded-lg px-4 py-4 flex flex-col gap-2">
-                <p className="text-xs font-medium text-foreground uppercase tracking-wide">
-                  About your API key
-                </p>
-                <ul className="text-sm text-muted space-y-1.5">
-                  <li className="flex items-start gap-2">
-                    <span className="mt-1.5 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
-                    Get your key from{" "}
-                    <a
-                      href="https://console.anthropic.com/settings/keys"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-foreground underline underline-offset-2 hover:opacity-70 transition-opacity"
-                    >
-                      console.anthropic.com
-                    </a>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="mt-1.5 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
-                    Encrypted and stored server-side — never in your browser
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="mt-1.5 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
-                    Only used when you trigger a Claude response in a conversation
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="mt-1.5 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
-                    You can revoke it from this page at any time
-                  </li>
-                </ul>
-              </div>
+              {(() => {
+                const opt = PROVIDER_OPTIONS.find((o) => o.value === selectedProvider)!;
+                return (
+                  <div className="bg-background border border-border rounded-lg px-4 py-4 flex flex-col gap-2">
+                    <p className="text-xs font-medium text-foreground uppercase tracking-wide">
+                      About your API key
+                    </p>
+                    <ul className="text-sm text-muted space-y-1.5">
+                      <li className="flex items-start gap-2">
+                        <span className="mt-1.5 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
+                        Get your key from{" "}
+                        <a
+                          href={opt.consoleUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-foreground underline underline-offset-2 hover:opacity-70 transition-opacity"
+                        >
+                          {opt.consoleName}
+                        </a>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="mt-1.5 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
+                        Encrypted and stored server-side — never in your browser
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="mt-1.5 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
+                        Only used when you trigger an AI response in a conversation
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="mt-1.5 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
+                        You can revoke it from this page at any time
+                      </li>
+                    </ul>
+                  </div>
+                );
+              })()}
             </div>
           </section>
         </div>

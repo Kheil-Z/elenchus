@@ -19,7 +19,7 @@ export function LeftNav({ activeProjectId }: { activeProjectId?: string }) {
   const [joinedProjects, setJoinedProjects] = useState<Project[]>([]);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
 
-  useEffect(() => { getApiKeyStatus().then(setApiKeyStatus); }, []);
+  useEffect(() => { getApiKeyStatus().then(({ status }) => setApiKeyStatus(status)); }, []);
 
   const [projectsVersion, setProjectsVersion] = useState(0);
 

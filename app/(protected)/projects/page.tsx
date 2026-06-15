@@ -19,6 +19,13 @@ import type { Project, Conversation } from "@/lib/types/database";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
+function formatTokens(n: number): string {
+  if (n === 0) return "—";
+  if (n < 1_000) return String(n);
+  if (n < 1_000_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
+  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+}
+
 function formatRelative(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60_000);
@@ -556,20 +563,6 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
-function UsageLine({ label, value, pct }: { label: string; value: string; pct: number }) {
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-[11px] text-muted">{label}</span>
-        <span className="text-[11px] font-medium text-foreground">{value}</span>
-      </div>
-      <div className="h-1 rounded-full bg-border overflow-hidden">
-        <div className="h-full rounded-full bg-foreground/30" style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  );
-}
-
 function SidebarButton({ label, icon, onClick }: { label: string; icon: React.ReactNode; onClick?: () => void }) {
   return (
     <button
@@ -603,8 +596,27 @@ export default function ProjectsPage() {
   const [deletingProject, setDeletingProject] = useState<Project | null>(null);
   const [leavingProject, setLeavingProject] = useState<Project | null>(null);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [monthlyCallCount, setMonthlyCallCount] = useState<number | null>(null);
+  const [monthlyTokens, setMonthlyTokens] = useState<number | null>(null);
 
-  useEffect(() => { getApiKeyStatus().then(setApiKeyStatus); }, []);
+  useEffect(() => { getApiKeyStatus().then(({ status }) => setApiKeyStatus(status)); }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    supabase
+      .from("messages")
+      .select("input_tokens, output_tokens")
+      .eq("payer_user_id", user.id)
+      .eq("role", "assistant")
+      .gte("created_at", startOfMonth)
+      .then(({ data }) => {
+        if (!data) return;
+        setMonthlyCallCount(data.length);
+        setMonthlyTokens(data.reduce((sum, r) => sum + (r.input_tokens ?? 0) + (r.output_tokens ?? 0), 0));
+      });
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -923,11 +935,25 @@ export default function ProjectsPage() {
 
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-widest text-muted mb-2" style={{ opacity: 0.5 }}>
-                This month
+                This month · my usage
               </p>
               <div className="space-y-2">
-                <UsageLine label="Input tokens" value="—" pct={0} />
-                <UsageLine label="Output tokens" value="—" pct={0} />
+                {monthlyCallCount === null ? (
+                  <p className="text-[11px] text-muted">Loading…</p>
+                ) : monthlyCallCount === 0 ? (
+                  <p className="text-[11px] text-muted">No AI calls yet this month.</p>
+                ) : (
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-muted">AI calls</span>
+                      <span className="text-[11px] font-medium text-foreground">{monthlyCallCount}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-muted">Tokens used</span>
+                      <span className="text-[11px] font-medium text-foreground">{formatTokens(monthlyTokens ?? 0)}</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

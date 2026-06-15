@@ -1041,7 +1041,7 @@ function MembersTab({
                 <div className="flex-1 h-1 rounded-full bg-border overflow-hidden">
                   <div className="h-full rounded-full" style={{ width: `${m.tokenPct}%`, backgroundColor: solidColor[m.color] }} />
                 </div>
-                <span className="text-[11px] text-muted shrink-0">{m.tokenPct}% of tokens</span>
+                <span className="text-[11px] text-muted shrink-0">{m.tokenPct > 0 ? `${m.tokenPct}% of AI spend` : "—"}</span>
               </div>
             </div>
           </div>
@@ -1169,29 +1169,20 @@ function highlightMention(text: string, displayName: string) {
   );
 }
 
-function CatchUpTab({ projectId, currentUser }: { projectId: string; currentUser: string }) {
-  const [mentions, setMentions] = useState<Mention[]>([]);
-  const [unread, setUnread] = useState<UnreadConversation[]>([]);
-  const [lastSeen, setLastSeen] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    getToken().then((token) => {
-      if (!token) { setLoading(false); return; }
-      fetch(`/api/projects/${projectId}/catchup`, { headers: { Authorization: `Bearer ${token}` } })
-        .then((r) => r.json())
-        .then((json) => {
-          if (json.success) {
-            setMentions(json.mentions);
-            setUnread(json.unread);
-            setLastSeen(json.lastSeenAt);
-          }
-          setLoading(false);
-        })
-        .catch(() => setLoading(false));
-    });
-  }, [projectId]);
-
+function CatchUpTab({
+  currentUser, mentions, unread, lastSeen, loading, clearing,
+  onDismissMention, onDismissUnread, onClearAll,
+}: {
+  currentUser: string;
+  mentions: Mention[];
+  unread: UnreadConversation[];
+  lastSeen: string | null;
+  loading: boolean;
+  clearing: boolean;
+  onDismissMention: (id: string) => void;
+  onDismissUnread: (id: string) => void;
+  onClearAll: () => void;
+}) {
   if (loading) return <div className="p-6 text-sm text-muted">Loading…</div>;
 
   if (mentions.length === 0 && unread.length === 0) {
@@ -1211,15 +1202,24 @@ function CatchUpTab({ projectId, currentUser }: { projectId: string; currentUser
 
   return (
     <div className="flex flex-col gap-8 p-6">
-      {lastSeen && (
-        <div className="flex items-center gap-2 text-xs text-muted">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0">
-            <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.2" />
-            <path d="M6 3.5V6.5L8 8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          Since your last visit {formatRelative(lastSeen)}.
-        </div>
-      )}
+      <div className="flex items-center justify-between gap-4">
+        {lastSeen ? (
+          <div className="flex items-center gap-2 text-xs text-muted">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0">
+              <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.2" />
+              <path d="M6 3.5V6.5L8 8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Since your last visit {formatRelative(lastSeen)}.
+          </div>
+        ) : <div />}
+        <button
+          onClick={onClearAll}
+          disabled={clearing}
+          className="text-xs text-muted border border-border rounded-lg px-3 py-1.5 hover:text-foreground hover:border-foreground/30 transition-colors disabled:opacity-40 shrink-0"
+        >
+          {clearing ? "Clearing…" : "All caught up!"}
+        </button>
+      </div>
 
       {mentions.length > 0 && (
         <div>
@@ -1234,6 +1234,7 @@ function CatchUpTab({ projectId, currentUser }: { projectId: string; currentUser
               <Link
                 key={m.id}
                 href={`/chat/${m.conversation_id}`}
+                onClick={() => onDismissMention(m.id)}
                 className="group flex flex-col gap-2 bg-surface border border-border rounded-xl px-4 py-3.5 hover:border-foreground/15 transition-all"
               >
                 <div className="flex items-center justify-between gap-3">
@@ -1272,6 +1273,7 @@ function CatchUpTab({ projectId, currentUser }: { projectId: string; currentUser
               <Link
                 key={c.id}
                 href={`/chat/${c.id}`}
+                onClick={() => onDismissUnread(c.id)}
                 className="group flex items-center gap-4 bg-surface border border-border rounded-xl px-4 py-3.5 hover:border-foreground/15 transition-all"
               >
                 <div className="flex-1 min-w-0">
@@ -1300,11 +1302,11 @@ function CatchUpTab({ projectId, currentUser }: { projectId: string; currentUser
 type Tab = "catchup" | "conversations" | "documents" | "members" | "activity";
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: "catchup",       label: "Catch up"      },
   { id: "conversations", label: "Conversations" },
   { id: "documents",     label: "Documents"     },
   { id: "members",       label: "Members"       },
   { id: "activity",      label: "Activity"      },
+  { id: "catchup",       label: "Catch up"      },
 ];
 
 function mapMember(m: ProjectMemberWithUser): Member {
@@ -1338,8 +1340,13 @@ export default function ProjectPage() {
   const currentUser = profile?.display_name ?? user?.email ?? "";
   const currentUserId = user?.id ?? "";
 
-  const [activeTab, setActiveTab] = useState<Tab>("catchup");
-  const [catchupBadge, setCatchupBadge] = useState(0);
+  const [activeTab, setActiveTab] = useState<Tab>("conversations");
+  const [catchupBadge,    setCatchupBadge]    = useState(0);
+  const [catchupMentions, setCatchupMentions] = useState<Mention[]>([]);
+  const [catchupUnread,   setCatchupUnread]   = useState<UnreadConversation[]>([]);
+  const [catchupLastSeen, setCatchupLastSeen] = useState<string | null>(null);
+  const [catchupLoading,  setCatchupLoading]  = useState(true);
+  const [catchupClearing, setCatchupClearing] = useState(false);
   const [navOpen, setNavOpen] = useState(true);
   const [isOwner, setIsOwner] = useState(false);
   const [projectName, setProjectName] = useState("");
@@ -1394,24 +1401,48 @@ export default function ProjectPage() {
 
           supabase
             .from("messages")
-            .select("conversation_id, author_user_id, author_display_name, created_at")
+            .select("conversation_id, author_user_id, author_display_name, created_at, payer_user_id, input_tokens, output_tokens")
             .in("conversation_id", ids)
             .order("created_at", { ascending: true })
             .then(({ data: rows }) => {
               const counts = new Map<string, number>();
               // authorsByConv: ordered list of unique authors per conversation
               const authorsByConv = new Map<string, { userId: string; name: string }[]>();
+              const spendByUser = new Map<string, number>();
 
               (rows ?? []).forEach((r) => {
-                const row = r as { conversation_id: string; author_user_id: string | null; author_display_name: string };
+                const row = r as {
+                  conversation_id: string;
+                  author_user_id: string | null;
+                  author_display_name: string;
+                  payer_user_id: string | null;
+                  input_tokens: number;
+                  output_tokens: number;
+                };
                 counts.set(row.conversation_id, (counts.get(row.conversation_id) ?? 0) + 1);
-                if (!row.author_user_id) return;
-                const list = authorsByConv.get(row.conversation_id) ?? [];
-                if (!list.some((a) => a.userId === row.author_user_id)) {
-                  list.push({ userId: row.author_user_id, name: row.author_display_name });
+                if (row.author_user_id) {
+                  const list = authorsByConv.get(row.conversation_id) ?? [];
+                  if (!list.some((a) => a.userId === row.author_user_id)) {
+                    list.push({ userId: row.author_user_id!, name: row.author_display_name });
+                  }
+                  authorsByConv.set(row.conversation_id, list);
                 }
-                authorsByConv.set(row.conversation_id, list);
+                if (row.payer_user_id && (row.input_tokens > 0 || row.output_tokens > 0)) {
+                  const prev = spendByUser.get(row.payer_user_id) ?? 0;
+                  spendByUser.set(row.payer_user_id, prev + (row.input_tokens ?? 0) + (row.output_tokens ?? 0));
+                }
               });
+
+              // Update member tokenPct based on share of total AI spend
+              const totalSpend = Array.from(spendByUser.values()).reduce((s, v) => s + v, 0);
+              if (totalSpend > 0) {
+                setRealMembers((prev) =>
+                  prev.map((m) => {
+                    const spend = spendByUser.get(m.id) ?? 0;
+                    return { ...m, tokenPct: Math.round((spend / totalSpend) * 100) };
+                  })
+                );
+              }
 
               setRealConversations((prev) =>
                 prev.map((c) => {
@@ -1443,11 +1474,14 @@ export default function ProjectPage() {
         .then((r) => r.json())
         .then((json) => {
           if (json.success) {
-            const total = (json.mentions?.length ?? 0) + (json.unread?.length ?? 0);
-            setCatchupBadge(total);
+            setCatchupMentions(json.mentions ?? []);
+            setCatchupUnread(json.unread ?? []);
+            setCatchupLastSeen(json.lastSeenAt ?? null);
+            setCatchupBadge((json.mentions?.length ?? 0) + (json.unread?.length ?? 0));
           }
+          setCatchupLoading(false);
         })
-        .catch(() => {});
+        .catch(() => setCatchupLoading(false));
     });
   }, [projectId, user]);
 
@@ -1486,6 +1520,21 @@ export default function ProjectPage() {
     });
     const json = await res.json();
     if (json.success) router.push(`/chat/${json.conversation.id}`);
+  }
+
+  async function handleCatchupClearAll() {
+    setCatchupClearing(true);
+    const token = await getToken();
+    if (token) {
+      await fetch(`/api/projects/${projectId}/catchup`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    }
+    setCatchupMentions([]);
+    setCatchupUnread([]);
+    setCatchupBadge(0);
+    setCatchupClearing(false);
   }
 
   function startEdit() {
@@ -1765,7 +1814,25 @@ export default function ProjectPage() {
                   />
                 )}
                 {activeTab === "activity" && <ActivityTab projectId={projectId} />}
-                {activeTab === "catchup" && <CatchUpTab projectId={projectId} currentUser={currentUser} />}
+                {activeTab === "catchup" && (
+                  <CatchUpTab
+                    currentUser={currentUser}
+                    mentions={catchupMentions}
+                    unread={catchupUnread}
+                    lastSeen={catchupLastSeen}
+                    loading={catchupLoading}
+                    clearing={catchupClearing}
+                    onDismissMention={(id) => {
+                      setCatchupMentions((prev) => prev.filter((m) => m.id !== id));
+                      setCatchupBadge((prev) => Math.max(0, prev - 1));
+                    }}
+                    onDismissUnread={(id) => {
+                      setCatchupUnread((prev) => prev.filter((c) => c.id !== id));
+                      setCatchupBadge((prev) => Math.max(0, prev - 1));
+                    }}
+                    onClearAll={handleCatchupClearAll}
+                  />
+                )}
               </div>
             </div>
           </main>
