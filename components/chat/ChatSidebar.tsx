@@ -327,7 +327,7 @@ export function ChatSidebar({
                     )}
                   </p>
                   <span className="text-[11px] font-medium text-muted shrink-0">
-                    {m.tokenPct}%
+                    {m.tokenPct > 0 ? `${m.tokenPct}%` : "—"}
                   </span>
                 </div>
                 <div className="h-1 rounded-full bg-border overflow-hidden">

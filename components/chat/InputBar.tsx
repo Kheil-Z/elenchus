@@ -29,9 +29,11 @@ interface InputBarProps {
   apiKeyStatus?: "active" | "not_set" | "error";
   onSend?: (msg: string, files: File[]) => Promise<void>;
   sending?: boolean;
+  aiMention?: string;
+  aiName?: string;
 }
 
-export function InputBar({ currentUser, members = [], apiKeyStatus, onSend, sending }: InputBarProps) {
+export function InputBar({ currentUser, members = [], apiKeyStatus, onSend, sending, aiMention = "@claude", aiName = "Claude" }: InputBarProps) {
   const [value, setValue] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [delegateOpen, setDelegateOpen] = useState(false);
@@ -40,7 +42,52 @@ export function InputBar({ currentUser, members = [], apiKeyStatus, onSend, send
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const hasClaudeMention = value.includes("@claude");
+  function applyFormat(type: "bold" | "italic" | "list") {
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end   = el.selectionEnd;
+    const before   = value.slice(0, start);
+    const selected = value.slice(start, end);
+    const after    = value.slice(end);
+
+    if (type === "bold") {
+      const inner = selected || "bold text";
+      setValue(`${before}**${inner}**${after}`);
+      requestAnimationFrame(() => {
+        el.selectionStart = start + 2;
+        el.selectionEnd   = start + 2 + inner.length;
+        el.focus();
+      });
+    } else if (type === "italic") {
+      const inner = selected || "italic text";
+      setValue(`${before}*${inner}*${after}`);
+      requestAnimationFrame(() => {
+        el.selectionStart = start + 1;
+        el.selectionEnd   = start + 1 + inner.length;
+        el.focus();
+      });
+    } else if (type === "list") {
+      const lineStart = before.lastIndexOf("\n") + 1;
+      if (value.slice(lineStart).startsWith("- ")) {
+        setValue(value.slice(0, lineStart) + value.slice(lineStart + 2));
+        requestAnimationFrame(() => {
+          el.selectionStart = Math.max(lineStart, start - 2);
+          el.selectionEnd   = Math.max(lineStart, end - 2);
+          el.focus();
+        });
+      } else {
+        setValue(value.slice(0, lineStart) + "- " + value.slice(lineStart));
+        requestAnimationFrame(() => {
+          el.selectionStart = start + 2;
+          el.selectionEnd   = end   + 2;
+          el.focus();
+        });
+      }
+    }
+  }
+
+  const hasClaudeMention = value.includes(aiMention);
   const canSend = value.trim().length > 0 || attachedFiles.length > 0;
   const others = members.filter((m) => m.name !== currentUser.name);
 
@@ -120,7 +167,7 @@ export function InputBar({ currentUser, members = [], apiKeyStatus, onSend, send
           ) : (
             <>
               <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block shrink-0" />
-              <span className="text-muted">API key set · Claude will respond using your key</span>
+              <span className="text-muted">API key set · {aiName} will respond using your key</span>
             </>
           )}
         </div>
@@ -302,18 +349,63 @@ export function InputBar({ currentUser, members = [], apiKeyStatus, onSend, send
             )}
           </div>
         </div>
+
+        {/* Formatting toolbar */}
+        <div className="flex items-center gap-0.5 px-3 pb-2 pt-0.5 border-t border-border/40">
+          {([
+            {
+              type: "bold" as const,
+              title: "Bold",
+              node: <span className="text-[11px] font-bold leading-none">B</span>,
+            },
+            {
+              type: "italic" as const,
+              title: "Italic",
+              node: <span className="text-[12px] italic font-serif leading-none">I</span>,
+            },
+            {
+              type: "list" as const,
+              title: "Bullet list",
+              node: (
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                  <circle cx="1.5" cy="2.5" r="1"   fill="currentColor" />
+                  <line x1="4" y1="2.5" x2="10" y2="2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                  <circle cx="1.5" cy="5.5" r="1"   fill="currentColor" />
+                  <line x1="4" y1="5.5" x2="10" y2="5.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                  <circle cx="1.5" cy="8.5" r="1"   fill="currentColor" />
+                  <line x1="4" y1="8.5" x2="10" y2="8.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                </svg>
+              ),
+            },
+          ] as const).map(({ type, title, node }) => (
+            <button
+              key={type}
+              onMouseDown={(e) => { e.preventDefault(); applyFormat(type); }}
+              title={title}
+              className="w-6 h-6 flex items-center justify-center rounded text-muted/40 hover:text-muted hover:bg-border/60 transition-colors"
+            >
+              {node}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Bottom row: hint + quick actions */}
       <div className="mt-1.5 flex items-center justify-between px-1">
         <p className="text-[10px] text-muted/40">
-          Enter to send · Shift+Enter for new line · @claude to call Claude
+          Enter to send · Shift+Enter for new line · {aiMention} to call {aiName}
         </p>
         <div className="flex items-center gap-1.5">
-          <button className="text-[10px] text-muted hover:text-foreground border border-border hover:border-foreground/20 rounded-md px-2 py-1 transition-colors">
+          <button
+            onClick={() => { setValue(`${aiMention} weigh in on this discussion`); textareaRef.current?.focus(); }}
+            className="text-[10px] text-muted hover:text-foreground border border-border hover:border-foreground/20 rounded-md px-2 py-1 transition-colors"
+          >
             Weigh in
           </button>
-          <button className="text-[10px] text-muted hover:text-foreground border border-border hover:border-foreground/20 rounded-md px-2 py-1 transition-colors">
+          <button
+            onClick={() => { setValue(`${aiMention} summarize the conversation so far`); textareaRef.current?.focus(); }}
+            className="text-[10px] text-muted hover:text-foreground border border-border hover:border-foreground/20 rounded-md px-2 py-1 transition-colors"
+          >
             Summarize
           </button>
         </div>

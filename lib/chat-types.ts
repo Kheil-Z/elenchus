@@ -14,6 +14,7 @@ export interface ChatMessage {
   modelUsed?: string;
   inputTokens?: number;
   outputTokens?: number;
+  payerUserId?: string | null;
 }
 
 export interface ChatMember {

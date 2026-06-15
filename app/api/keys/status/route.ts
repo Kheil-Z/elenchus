@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from("users")
-    .select("anthropic_api_key_encrypted")
+    .select("llm_provider, llm_api_key_encrypted")
     .eq("id", user.id)
     .single();
 
@@ -29,8 +29,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: false, error: "Failed to fetch status" }, { status: 500 });
   }
 
-  const row = data as { anthropic_api_key_encrypted: string | null };
-  const status = row.anthropic_api_key_encrypted ? "active" : "not_set";
+  const row = data as { llm_provider: string | null; llm_api_key_encrypted: string | null };
+  const status = row.llm_api_key_encrypted ? "active" : "not_set";
 
-  return NextResponse.json({ success: true, status });
+  return NextResponse.json({ success: true, status, provider: row.llm_provider });
 }

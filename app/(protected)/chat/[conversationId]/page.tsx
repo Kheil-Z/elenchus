@@ -9,9 +9,10 @@ import { InputBar } from "@/components/chat/InputBar";
 import { ChatFooter } from "@/components/chat/ChatFooter";
 import { useAuth } from "@/lib/auth-context";
 import { getApiKeyStatus } from "@/lib/api-key";
+import { DEFAULT_MODEL } from "@/lib/llm";
 import { getConversation, getMessages, getProject, getProjectMembers, subscribeToMessages } from "@/lib/db";
 import { supabase } from "@/lib/supabase";
-import type { ApiKeyStatus } from "@/lib/api-key";
+import type { ApiKeyStatus, LLMProvider } from "@/lib/api-key";
 import type { ChatMessage, ChatMember, ChatDocument, ContentSegment } from "@/lib/chat-types";
 import type { UserColor } from "@/lib/types";
 import type { Message, Conversation, Project } from "@/lib/types/database";
@@ -45,13 +46,14 @@ function dbMsgToChat(msg: Message, colorMap: Map<string, UserColor>): ChatMessag
   return {
     id: msg.id,
     role: msg.role,
-    authorName: msg.role === "assistant" ? "Claude" : msg.author_display_name,
+    authorName: msg.author_display_name ?? (msg.role === "assistant" ? "AI" : ""),
     authorColor: msg.author_user_id ? (colorMap.get(msg.author_user_id) ?? "blue") : undefined,
     timestamp: formatTime(msg.created_at),
     segments: parseSegments(msg.content),
     modelUsed: msg.model_used ?? undefined,
     inputTokens: msg.input_tokens > 0 ? msg.input_tokens : undefined,
     outputTokens: msg.output_tokens > 0 ? msg.output_tokens : undefined,
+    payerUserId: msg.payer_user_id ?? null,
   };
 }
 
@@ -73,11 +75,19 @@ export default function ChatPage() {
   const [awaitingClaude, setAwaitingClaude] = useState(false);
   const [mentionsOnly, setMentionsOnly] = useState(false);
   const [apiKeyStatus, setApiKeyStatus] = useState<ApiKeyStatus | "loading">("loading");
+  const [currentProvider, setCurrentProvider] = useState<LLMProvider | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const colorMapRef = useRef<Map<string, UserColor>>(new Map());
   const onlineIdsRef = useRef<Set<string>>(new Set());
 
-  useEffect(() => { getApiKeyStatus().then(setApiKeyStatus); }, []);
+  useEffect(() => {
+    getApiKeyStatus().then(({ status, provider }) => {
+      setApiKeyStatus(status);
+      setCurrentProvider(provider);
+      if (provider) setSelectedModel(DEFAULT_MODEL[provider]);
+    });
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -250,12 +260,12 @@ export default function ChatPage() {
     const fullContent = [content.trim(), docSentinels].filter(Boolean).join("\n");
 
     if (fullContent) {
-      const isClaudeCall = fullContent.includes("@claude");
+      const isClaudeCall = fullContent.includes("@claude") || fullContent.includes("@gemini") || fullContent.includes("@openai");
       if (isClaudeCall) setAwaitingClaude(true);
 
-      const url = isClaudeCall ? "/api/claude" : "/api/messages/send";
+      const url = isClaudeCall ? "/api/llm" : "/api/messages/send";
       const body = isClaudeCall
-        ? { conversationId, message: fullContent }
+        ? { conversationId, message: fullContent, model: selectedModel ?? undefined }
         : { conversationId, content: fullContent, authorDisplayName: profile.display_name };
 
       try {
@@ -328,6 +338,20 @@ export default function ChatPage() {
     return sum + Math.ceil(chars / 4);
   }, 0);
 
+  // Compute per-member share of AI token spend in this conversation
+  const spendByUser = new Map<string, number>();
+  for (const m of messages) {
+    if (m.role === "assistant" && m.payerUserId && (m.inputTokens || m.outputTokens)) {
+      const prev = spendByUser.get(m.payerUserId) ?? 0;
+      spendByUser.set(m.payerUserId, prev + (m.inputTokens ?? 0) + (m.outputTokens ?? 0));
+    }
+  }
+  const totalSpend = Array.from(spendByUser.values()).reduce((s, v) => s + v, 0);
+  const membersWithTokens = chatMembers.map((m) => {
+    const spend = m.userId ? (spendByUser.get(m.userId) ?? 0) : 0;
+    return { ...m, tokenPct: totalSpend > 0 ? Math.round((spend / totalSpend) * 100) : 0 };
+  });
+
   return (
     <ChatLayout
       title={conversationName || (conversation?.name ?? "Loading…")}
@@ -337,7 +361,7 @@ export default function ChatPage() {
       sidebar={
         <ChatSidebar
           projectName={project?.name ?? "Project"}
-          members={chatMembers}
+          members={membersWithTokens}
           documents={chatDocuments}
           conversationId={conversationId}
           currentUserName={currentUserName}
@@ -353,6 +377,7 @@ export default function ChatPage() {
         loading={loading}
         sending={awaitingClaude}
         mentionsOnly={mentionsOnly}
+        aiName={currentProvider === "anthropic" ? "Claude" : currentProvider === "gemini" ? "Gemini" : currentProvider === "openai" ? "ChatGPT" : "AI"}
       />
       {sendError && (
         <div className="mx-4 mb-2 flex items-center gap-2.5 bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-sm">
@@ -377,11 +402,15 @@ export default function ChatPage() {
         apiKeyStatus={apiKeyStatus === "loading" ? undefined : apiKeyStatus}
         onSend={handleSend}
         sending={sending}
+        aiMention={currentProvider === "gemini" ? "@gemini" : currentProvider === "openai" ? "@openai" : "@claude"}
+        aiName={currentProvider === "gemini" ? "Gemini" : currentProvider === "openai" ? "ChatGPT" : "Claude"}
       />
       <ChatFooter
         tokenCount={tokenCount}
-        model="claude-sonnet-4-6"
+        model={selectedModel ?? (currentProvider ? DEFAULT_MODEL[currentProvider] : "—")}
+        provider={currentProvider}
         apiKeySet={apiKeyStatus === "active"}
+        onModelChange={setSelectedModel}
       />
     </ChatLayout>
   );

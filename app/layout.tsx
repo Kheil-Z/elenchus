@@ -22,8 +22,8 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Elenchus — Multiplayer Claude",
-  description: "A collaborative AI workspace. Multiple people, one Claude thread, each using their own API key.",
+  title: "Elenchus — Multiplayer AI",
+  description: "A collaborative AI workspace. Multiple people, one shared thread, each using their own API key.",
 };
 
 export default function RootLayout({

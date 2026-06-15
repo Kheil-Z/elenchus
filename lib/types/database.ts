@@ -1,13 +1,17 @@
 // TypeScript types mirroring the Supabase schema.
 // These are plain types used throughout the app — not Supabase-generated.
 
+export type LLMProvider = "anthropic" | "gemini" | "openai";
+
 export interface User {
   id: string;
   email: string;
   display_name: string;
   color: string;
+  /** Which LLM provider this user has configured. */
+  llm_provider?: LLMProvider | null;
   /** Encrypted server-side; never returned to the client in plaintext. */
-  anthropic_api_key_encrypted?: string;
+  llm_api_key_encrypted?: string | null;
   created_at: string;
 }
 
