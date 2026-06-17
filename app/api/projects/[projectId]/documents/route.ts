@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { validateFileMime } from "@/lib/validate";
 import type { Database } from "@/lib/types/database";
 
 const supabaseAdmin = createClient<Database>(
@@ -37,7 +38,7 @@ export async function GET(
 
   const { data: docsData, error: docsError } = await supabaseAdmin
     .from("documents")
-    .select("id, name, storage_path, size_bytes, mime_type, uploaded_by, created_at, conversation_id")
+    .select("id, name, storage_path, size_bytes, mime_type, uploaded_by, created_at, conversation_id, content_length")
     .eq("project_id", projectId)
     .order("created_at", { ascending: false });
 
@@ -46,7 +47,7 @@ export async function GET(
   const docs = (docsData ?? []) as unknown as Array<{
     id: string; name: string; storage_path: string; size_bytes: number;
     mime_type: string | null; uploaded_by: string; created_at: string;
-    conversation_id: string | null;
+    conversation_id: string | null; content_length: number | null;
   }>;
 
   // Enrich with uploader names
@@ -86,6 +87,30 @@ export async function GET(
   return NextResponse.json({ success: true, documents });
 }
 
+const TEXT_MIME_PREFIXES = ["text/"];
+const TEXT_MIME_EXACT = new Set(["application/json", "application/xml", "application/csv"]);
+const CONTENT_CAP = 100_000; // chars
+
+async function extractTextContent(buffer: ArrayBuffer, mimeType: string): Promise<string | null> {
+  const mime = mimeType.toLowerCase();
+  try {
+    if (TEXT_MIME_PREFIXES.some((p) => mime.startsWith(p)) || TEXT_MIME_EXACT.has(mime)) {
+      return new TextDecoder().decode(buffer).slice(0, CONTENT_CAP);
+    }
+    if (mime === "application/pdf") {
+      // Use the inner lib path to avoid pdf-parse's top-level test-file initialization,
+      // which crashes with a file-not-found error in the Next.js bundle.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const pdfParse = require("pdf-parse/lib/pdf-parse.js") as (buf: Buffer) => Promise<{ text: string }>;
+      const result = await pdfParse(Buffer.from(buffer));
+      return result.text.slice(0, CONTENT_CAP);
+    }
+  } catch (err) {
+    console.error(`[extractTextContent] failed for mime="${mimeType}":`, err);
+  }
+  return null;
+}
+
 // POST — upload a document (project-wide by default; pass conversationId field to scope it)
 export async function POST(
   req: NextRequest,
@@ -105,6 +130,11 @@ export async function POST(
     .single();
 
   if (!memberCheck) return NextResponse.json({ success: false, error: "Not a project member" }, { status: 403 });
+
+  const contentLength = Number(req.headers.get("content-length") ?? 0);
+  if (contentLength > 20 * 1024 * 1024) {
+    return NextResponse.json({ success: false, error: "File exceeds 20 MB limit" }, { status: 413 });
+  }
 
   let formData: FormData;
   try { formData = await req.formData(); } catch {
@@ -135,22 +165,28 @@ export async function POST(
   if (file.size > MAX_BYTES) {
     return NextResponse.json({ success: false, error: "File exceeds 20 MB limit" }, { status: 413 });
   }
+  if (file.type) {
+    const mimeErr = validateFileMime(file.type);
+    if (mimeErr) return NextResponse.json({ success: false, error: mimeErr }, { status: 415 });
+  }
 
   const safeName = file.name.replace(/[^a-zA-Z0-9._\-() ]/g, "_");
   const storagePath = `${projectId}/${Date.now()}-${safeName}`;
 
   const arrayBuffer = await file.arrayBuffer();
-  const { error: uploadError } = await supabaseAdmin.storage
-    .from("documents")
-    .upload(storagePath, Buffer.from(arrayBuffer), {
+
+  const [uploadResult, textContent] = await Promise.all([
+    supabaseAdmin.storage.from("documents").upload(storagePath, Buffer.from(arrayBuffer), {
       contentType: file.type || "application/octet-stream",
       upsert: false,
-    });
+    }),
+    extractTextContent(arrayBuffer, file.type || ""),
+  ]);
 
-  if (uploadError) {
-    const msg = uploadError.message.includes("Bucket not found")
+  if (uploadResult.error) {
+    const msg = uploadResult.error.message.includes("Bucket not found")
       ? 'Storage bucket "documents" not found. Create it in the Supabase dashboard first.'
-      : uploadError.message;
+      : uploadResult.error.message;
     return NextResponse.json({ success: false, error: msg }, { status: 500 });
   }
 
@@ -162,6 +198,8 @@ export async function POST(
       storage_path: storagePath,
       size_bytes: file.size,
       mime_type: file.type || null,
+      content: textContent,
+      content_length: textContent !== null ? textContent.length : null,
       uploaded_by: user.id,
       conversation_id: conversationId,
     } as never)

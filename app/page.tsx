@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Header } from "@/components/Header";
 import { ProjectCard } from "@/components/ProjectCard";
@@ -13,19 +13,6 @@ import type { UserColor } from "@/lib/types";
 // ── Static demo data ──────────────────────────────────────────────────────────
 
 const PROJECTS = [
-  {
-    emoji: "🎨",
-    name: "Product Redesign",
-    description: "Onboarding flow redesign and design system updates for Q3.",
-    members: [
-      { name: "Alex Kim", color: "blue" as UserColor },
-      { name: "Ben Clarke", color: "green" as UserColor },
-      { name: "Clara Ng", color: "purple" as UserColor },
-    ],
-    docCount: 3,
-    chatCount: 5,
-    lastActive: "2h ago",
-  },
   {
     emoji: "📊",
     name: "Q3 Strategy",
@@ -40,6 +27,19 @@ const PROJECTS = [
     docCount: 7,
     chatCount: 12,
     lastActive: "1d ago",
+  },
+  {
+    emoji: "🎨",
+    name: "Product Redesign",
+    description: "Onboarding flow redesign and design system updates for Q3.",
+    members: [
+      { name: "Alex Kim", color: "blue" as UserColor },
+      { name: "Ben Clarke", color: "green" as UserColor },
+      { name: "Clara Ng", color: "purple" as UserColor },
+    ],
+    docCount: 3,
+    chatCount: 5,
+    lastActive: "2h ago",
   },
   {
     emoji: "⚙️",
@@ -125,7 +125,7 @@ const HOW_IT_WORKS = [
   {
     step: "01",
     title: "Bring your own key",
-    body: "Each person adds their AI provider API key (Anthropic or Gemini). Keys are encrypted and stored server-side — never in your browser.",
+    body: "Each person adds their AI provider API key (Anthropic, Google, or OpenAI). Keys are encrypted and stored server-side — never in your browser.",
   },
   {
     step: "02",
@@ -144,6 +144,7 @@ const HOW_IT_WORKS = [
 export default function Home() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
+  const [selectedChat, setSelectedChat] = useState<0 | 1 | 2>(1);
 
   useEffect(() => {
     if (!isLoading && user) {
@@ -184,10 +185,9 @@ export default function Home() {
           </div>
 
           {/* Row 2: explanation */}
-          <p className="text-[15px] text-muted leading-relaxed w-full max-w-xl">
-            Multiple people, one shared thread — each using their own API key.
-            The AI sees who said what, tracks costs per person, and speaks only
-            when called.
+          <p className="text-[20px] text-muted leading-relaxed w-full max-w-xl">
+            Stop copy-pasting AI replies. <br /> One thread — your team,
+            your AI, everyone in the same room.
           </p>
 
           {/* Row 3: CTAs */}
@@ -198,12 +198,17 @@ export default function Home() {
             <a href="/auth/login" className="text-sm text-muted border border-border bg-surface px-5 py-2.5 rounded-lg hover:text-foreground transition-colors">
               Sign in
             </a>
-            <button className="flex items-center gap-2 text-sm text-muted border border-border bg-surface px-5 py-2.5 rounded-lg hover:text-foreground transition-colors">
+            <a
+              href="https://github.com/Kheil-Z/elenchus"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 text-sm text-muted border border-border bg-surface px-5 py-2.5 rounded-lg hover:text-foreground transition-colors"
+            >
               <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                 <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8"/>
               </svg>
               Star on GitHub
-            </button>
+            </a>
           </div>
         </section>
 
@@ -228,27 +233,38 @@ export default function Home() {
 
             <div className="grid grid-cols-1 lg:grid-cols-[2fr_3fr] gap-6 items-start">
 
-              {/* Left: 2×2 project mini-grid */}
+              {/* Left: 2×2 project mini-grid — click any card to preview its chat */}
               <div className="grid grid-cols-2 gap-3">
-                {PROJECTS.slice(0, 3).map((p) => (
-                  <ProjectCard key={p.name} {...p} />
+                {PROJECTS.slice(0, 3).map((p, i) => (
+                  <button
+                    key={p.name}
+                    onClick={() => setSelectedChat(i as 0 | 1 | 2)}
+                    className={`text-left w-full rounded-xl transition-all duration-150 ${
+                      selectedChat === i
+                        ? "ring-2 ring-foreground/30 shadow-[0_2px_12px_rgba(0,0,0,0.08)]"
+                        : "opacity-60 hover:opacity-90"
+                    }`}
+                  >
+                    <ProjectCard {...p} />
+                  </button>
                 ))}
 
-                {/* New project card */}
-                <button className="group bg-surface rounded-xl border border-dashed border-border p-4 flex flex-col items-center justify-center gap-2 hover:border-foreground/20 hover:bg-background transition-all cursor-pointer">
-                  <div className="w-8 h-8 rounded-full border border-dashed border-border group-hover:border-foreground/30 flex items-center justify-center transition-colors">
+                {/* New project card — links to sign up */}
+                <a
+                  href="/auth/signup"
+                  className="bg-surface rounded-xl border border-dashed border-border p-4 flex flex-col items-center justify-center gap-2 hover:border-foreground/20 hover:bg-background transition-all duration-150 opacity-60 hover:opacity-100"
+                >
+                  <div className="w-8 h-8 rounded-full border border-dashed border-border flex items-center justify-center">
                     <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-                      <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-muted group-hover:text-foreground transition-colors"/>
+                      <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-muted"/>
                     </svg>
                   </div>
-                  <span className="text-xs text-muted group-hover:text-foreground transition-colors">
-                    New project
-                  </span>
-                </button>
+                  <span className="text-xs text-muted">New project</span>
+                </a>
               </div>
 
               {/* Right: demo chat */}
-              <DemoChat />
+              <DemoChat chatId={selectedChat} />
             </div>
           </div>
         </section>
@@ -258,9 +274,6 @@ export default function Home() {
           <div className="max-w-5xl mx-auto">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-serif text-2xl text-foreground">Recent chats</h2>
-              <button className="text-sm text-muted hover:text-foreground transition-colors">
-                View all
-              </button>
             </div>
 
             <div className="bg-surface rounded-xl border border-border divide-y divide-border overflow-hidden">
@@ -277,9 +290,15 @@ export default function Home() {
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted">
           <span className="font-serif text-base text-foreground">Elenchus</span>
           <div className="flex items-center gap-6">
-            <a href="#" className="hover:text-foreground transition-colors">GitHub</a>
-            <a href="#" className="hover:text-foreground transition-colors">MIT License</a>
-            <a href="#" className="hover:text-foreground transition-colors">Self-host</a>
+            <span>MIT License</span>
+            <a
+              href="https://github.com/Kheil-Z/elenchus"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-foreground transition-colors"
+            >
+              GitHub
+            </a>
           </div>
           <span className="text-xs">Vercel + Supabase · $0 to start</span>
         </div>

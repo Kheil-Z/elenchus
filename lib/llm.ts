@@ -3,7 +3,7 @@
 // normalised output — the route never needs to know which provider was used.
 
 import type { LLMProvider } from "@/lib/types/database";
-import type { ClaudeMessage } from "@/lib/types/claude";
+import type { ClaudeMessage, ContentBlock } from "@/lib/types/claude";
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
@@ -25,9 +25,9 @@ export interface LLMResponse {
 // ─── Per-provider constants ───────────────────────────────────────────────────
 
 export const DEFAULT_MODEL: Record<LLMProvider, string> = {
-  anthropic: "claude-sonnet-4-6",
+  anthropic: "claude-haiku-4-5-20251001",
   gemini:    "gemini-2.5-flash",
-  openai:    "gpt-4o",
+  openai:    "gpt-4o-mini",
 };
 
 export const PROVIDER_DISPLAY_NAME: Record<LLMProvider, string> = {
@@ -53,6 +53,32 @@ export const PROVIDER_MODELS: Record<LLMProvider, { id: string; name: string }[]
     { id: "o4-mini",     name: "o4 mini"     },
   ],
 };
+
+// ─── Content-block converters (Anthropic format is the canonical input) ───────
+
+// OpenAI image_url format (document blocks are Anthropic-only — skip them here)
+function toOpenAIContent(content: string | ContentBlock[]): unknown {
+  if (typeof content === "string") return content;
+  const out: unknown[] = [];
+  for (const b of content) {
+    if (b.type === "text")  out.push({ type: "text", text: b.text });
+    if (b.type === "image") out.push({ type: "image_url", image_url: { url: `data:${b.source.media_type};base64,${b.source.data}` } });
+    // document blocks: not supported by OpenAI — text already in system prompt
+  }
+  return out;
+}
+
+// Gemini inlineData format (document blocks are Anthropic-only — skip them here)
+function toGeminiParts(content: string | ContentBlock[]): unknown[] {
+  if (typeof content === "string") return [{ text: content }];
+  const out: unknown[] = [];
+  for (const b of content) {
+    if (b.type === "text")  out.push({ text: b.text });
+    if (b.type === "image") out.push({ inlineData: { mimeType: b.source.media_type, data: b.source.data } });
+    // document blocks: not supported by Gemini
+  }
+  return out;
+}
 
 // ─── Provider: Anthropic ──────────────────────────────────────────────────────
 
@@ -100,7 +126,7 @@ const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 async function callOpenAI(req: LLMRequest): Promise<LLMResponse> {
   const messages = [
     { role: "system", content: req.systemPrompt },
-    ...req.messages.map((m) => ({ role: m.role, content: m.content })),
+    ...req.messages.map((m) => ({ role: m.role, content: toOpenAIContent(m.content) })),
   ];
 
   const response = await fetch(OPENAI_API_URL, {
@@ -143,7 +169,7 @@ async function callGemini(req: LLMRequest): Promise<LLMResponse> {
 
   const contents = req.messages.map((m) => ({
     role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
+    parts: toGeminiParts(m.content),
   }));
 
   const response = await fetch(url, {
@@ -187,8 +213,7 @@ export async function callLLM(req: LLMRequest): Promise<LLMResponse> {
 
 // ─── Typed errors (lets the route set the right HTTP status without string matching) ──
 
-export class LLMError               extends Error { readonly status: number = 500; }
-export class LLMAuthError           extends LLMError { override readonly status = 400; }
-export class LLMCreditError         extends LLMError { override readonly status = 402; }
-export class LLMRateLimitError      extends LLMError { override readonly status = 429; }
-export class LLMNotImplementedError extends LLMError { override readonly status = 501; }
+export class LLMError          extends Error { readonly status: number = 500; }
+export class LLMAuthError      extends LLMError { override readonly status = 400; }
+export class LLMCreditError    extends LLMError { override readonly status = 402; }
+export class LLMRateLimitError extends LLMError { override readonly status = 429; }

@@ -1,5 +1,7 @@
 import type { UserColor } from "./types";
 
+export type DocMode = "always" | "never" | "on_demand";
+
 export type ContentSegment =
   | { type: "text"; text: string }
   | { type: "doc"; id?: string; filename: string; uploader: string; sizeBytes?: number; mimeType?: string | null; createdAt?: string };
@@ -34,4 +36,5 @@ export interface ChatDocument {
   sizeBytes: number;
   mimeType: string | null;
   createdAt: string;
+  contentLength: number | null; // chars of extracted text, null if not extractable
 }

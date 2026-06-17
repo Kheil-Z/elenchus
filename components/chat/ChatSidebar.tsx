@@ -4,7 +4,8 @@ import { useState, useRef, useEffect } from "react";
 import { Avatar } from "@/components/Avatar";
 import { supabase } from "@/lib/supabase";
 import { DocPreviewModal } from "@/components/DocPreviewModal";
-import type { ChatMember, ChatDocument } from "@/lib/chat-types";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import type { ChatMember, ChatDocument, DocMode } from "@/lib/chat-types";
 import type { UserColor } from "@/lib/types";
 
 const dotColor: Record<UserColor, string> = {
@@ -28,8 +29,11 @@ interface ChatSidebarProps {
   conversationId?: string;
   currentUserName?: string;
   onUploadFile?: (file: File) => Promise<ChatDocument | null>;
+  onDocumentDeleted?: (docId: string) => void;
   mentionsOnly?: boolean;
   onMentionsToggle?: () => void;
+  docMode: DocMode;
+  onDocModeChange: (mode: DocMode) => void;
 }
 
 function DocRow({
@@ -108,7 +112,7 @@ function DocRow({
           <button
             onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
             title="Delete document"
-            className="w-5 h-5 flex items-center justify-center rounded text-muted/50 hover:text-red-500 hover:bg-red-50 transition-colors"
+            className="w-5 h-5 flex items-center justify-center rounded text-muted/50 hover-destructive transition-colors"
           >
             <svg width="9" height="9" viewBox="0 0 12 12" fill="none">
               <path d="M2 3h8M4 3V2h4v1M5 5.5v3M7 5.5v3M3 3l.5 7h5L9 3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
@@ -117,7 +121,7 @@ function DocRow({
         )}
         {confirmDelete && (
           <div className="flex items-center gap-1">
-            <span className="text-[10px] text-red-600 font-medium whitespace-nowrap">Delete?</span>
+            <span className="text-[10px] font-medium whitespace-nowrap" style={{ color: "var(--color-error)" }}>Delete?</span>
             <button
               onClick={(e) => { e.stopPropagation(); setConfirmDelete(false); }}
               className="text-[10px] text-muted border border-border rounded px-1.5 py-0.5 hover:bg-background transition-colors"
@@ -127,7 +131,7 @@ function DocRow({
             <button
               onClick={handleDelete}
               disabled={deleting}
-              className="text-[10px] font-medium text-white bg-red-600 hover:bg-red-700 rounded px-1.5 py-0.5 transition-colors disabled:opacity-50"
+              className="text-[10px] font-medium rounded px-1.5 py-0.5 transition-colors disabled:opacity-50" style={{ backgroundColor: "var(--color-error)", color: "var(--color-background)" }}
             >
               {deleting ? "…" : "Yes"}
             </button>
@@ -145,13 +149,16 @@ export function ChatSidebar({
   conversationId,
   currentUserName,
   onUploadFile,
+  onDocumentDeleted,
   mentionsOnly = false,
   onMentionsToggle,
+  docMode,
+  onDocModeChange,
 }: ChatSidebarProps) {
-  const [search, setSearch] = useState("");
 
   const [addingMember, setAddingMember] = useState(false);
   const [inviteValue, setInviteValue] = useState("");
+  const [comingSoonVisible, setComingSoonVisible] = useState(false);
 
   const [docList, setDocList] = useState<ChatDocument[]>(documents);
   const [uploading, setUploading] = useState(false);
@@ -191,7 +198,13 @@ export function ChatSidebar({
     const json = await res.json().catch(() => ({}));
     if (json.success) {
       setDocList((prev) => prev.filter((d) => d.id !== docId));
+      onDocumentDeleted?.(docId);
     }
+  }
+
+  function handleOnDemandClick() {
+    setComingSoonVisible(true);
+    setTimeout(() => setComingSoonVisible(false), 1800);
   }
 
   async function handleScopeChange(docId: string, toConversationId: string | null) {
@@ -229,36 +242,15 @@ export function ChatSidebar({
         onClose={() => setPreviewDoc(null)}
         onDeleted={(deletedId) => {
           setDocList((prev) => prev.filter((d) => d.id !== deletedId));
+          onDocumentDeleted?.(deletedId);
           setPreviewDoc(null);
         }}
       />
     )}
-    <aside className="w-60 border-l border-border bg-surface flex flex-col overflow-y-auto shrink-0">
+    <aside className="w-56 border-l border-border bg-surface flex flex-col overflow-y-auto shrink-0">
 
-      {/* Search + filters */}
-      <div className="px-3 py-3 border-b border-border flex flex-col gap-2">
-        <div className="flex items-center gap-2 bg-background border border-border rounded-lg px-2.5 py-1.5 focus-within:border-foreground/20 transition-colors">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-muted shrink-0">
-            <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.2" />
-            <path d="M8 8l2.5 2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-          </svg>
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search conversation…"
-            className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted/40 focus:outline-none min-w-0"
-          />
-          {search && (
-            <button
-              onClick={() => setSearch("")}
-              className="text-muted/60 hover:text-foreground transition-colors leading-none shrink-0"
-              aria-label="Clear search"
-            >
-              ×
-            </button>
-          )}
-        </div>
-
+      {/* Filters */}
+      <div className="px-3 py-3 border-b border-border">
         <button
           onClick={onMentionsToggle}
           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors w-full text-left"
@@ -275,7 +267,7 @@ export function ChatSidebar({
           </svg>
           <span className="font-medium">My mentions</span>
           {mentionsOnly && (
-            <span className="ml-auto text-[10px] font-semibold bg-blue-500 text-white rounded-full px-1.5 py-px leading-none">
+            <span className="ml-auto text-[10px] font-semibold rounded-full px-1.5 py-px leading-none" style={{ backgroundColor: "var(--color-foreground)", color: "var(--color-background)" }}>
               on
             </span>
           )}
@@ -315,7 +307,7 @@ export function ChatSidebar({
                 <Avatar name={m.name} color={m.color} size="sm" />
                 <span
                   className="absolute bottom-0 right-0 w-2 h-2 rounded-full ring-2 ring-surface"
-                  style={{ backgroundColor: m.online ? "#4ADE80" : "#D1D5DB" }}
+                  style={{ backgroundColor: m.online ? "#4ADE80" : "var(--color-border)" }}
                 />
               </div>
               <div className="flex-1 min-w-0">
@@ -391,8 +383,42 @@ export function ChatSidebar({
 
         <input ref={docFileRef} type="file" className="hidden" onChange={handleDocFile} />
 
+        {/* Document context mode */}
+        <div className="mb-3">
+          <p className="text-[10px] text-muted/60 mb-1.5">Send documents to AI</p>
+          <div className="flex rounded-lg border border-border overflow-hidden text-[10px] font-medium divide-x divide-border">
+            {(["always", "never"] as DocMode[]).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => onDocModeChange(mode)}
+                className="flex-1 py-1.5 transition-colors capitalize"
+                style={
+                  docMode === mode
+                    ? { backgroundColor: "var(--color-foreground)", color: "var(--color-background)" }
+                    : { color: "var(--color-muted)" }
+                }
+              >
+                {mode}
+              </button>
+            ))}
+            <button
+              onClick={handleOnDemandClick}
+              className="flex-1 py-1.5"
+              style={{ color: "var(--color-muted)", opacity: 0.4, cursor: "default" }}
+              aria-disabled="true"
+            >
+              On demand
+            </button>
+          </div>
+          {comingSoonVisible && (
+            <p className="text-[10px] text-center mt-1.5" style={{ color: "var(--color-error)" }}>
+              Coming soon
+            </p>
+          )}
+        </div>
+
         {uploadError && (
-          <p className="text-[10px] text-red-600 mb-2">{uploadError}</p>
+          <p className="text-[10px] mb-2" style={{ color: "var(--color-error)" }}>{uploadError}</p>
         )}
 
         {/* Project-wide section */}
@@ -449,6 +475,10 @@ export function ChatSidebar({
             )}
           </div>
         )}
+      </div>
+
+      <div className="mt-auto px-4 py-4 border-t border-border">
+        <ThemeToggle />
       </div>
     </aside>
     </>

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { LIMITS, capLength } from "@/lib/validate";
 import type { Database } from "@/lib/types/database";
 
 const supabaseAdmin = createClient<Database>(
@@ -32,6 +33,8 @@ export async function PUT(
   if (!body.name?.trim()) {
     return NextResponse.json({ success: false, error: "Name is required" }, { status: 400 });
   }
+  const nameErr = capLength(body.name.trim(), LIMITS.conversationName, "Conversation name");
+  if (nameErr) return NextResponse.json({ success: false, error: nameErr }, { status: 400 });
 
   // Verify user is a member of the conversation's project
   const { data: convData } = await supabaseAdmin

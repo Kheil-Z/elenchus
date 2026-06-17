@@ -20,6 +20,7 @@ export interface Project {
   name: string;
   description: string | null;
   emoji: string;
+  system_prompt: string | null;
   created_by: string;
   created_at: string;
 }
@@ -82,6 +83,8 @@ export interface Document {
   storage_path: string;
   size_bytes: number;
   mime_type: string | null;
+  content: string | null;
+  content_length: number | null;
   uploaded_by: string;
   created_at: string;
 }

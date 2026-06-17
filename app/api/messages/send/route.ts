@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { LIMITS } from "@/lib/validate";
 import type { Database } from "@/lib/types/database";
 
 const supabaseAdmin = createClient<Database>(
@@ -29,6 +30,12 @@ export async function POST(req: NextRequest) {
   if (!conversationId || !content?.trim()) {
     return NextResponse.json(
       { success: false, error: "conversationId and content are required" },
+      { status: 400 }
+    );
+  }
+  if (content.trim().length > LIMITS.messageContent) {
+    return NextResponse.json(
+      { success: false, error: `Message must be ${LIMITS.messageContent.toLocaleString()} characters or fewer` },
       { status: 400 }
     );
   }

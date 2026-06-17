@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { LIMITS, capLength } from "@/lib/validate";
 import type { Database } from "@/lib/types/database";
 
 const supabaseAdmin = createClient<Database>(
@@ -28,6 +29,15 @@ export async function POST(req: NextRequest) {
   const { name, description, emoji = "📁" } = body;
   if (!name?.trim()) {
     return NextResponse.json({ success: false, error: "Project name is required" }, { status: 400 });
+  }
+  const nameErr = capLength(name.trim(), LIMITS.projectName, "Project name");
+  if (nameErr) return NextResponse.json({ success: false, error: nameErr }, { status: 400 });
+  if (description) {
+    const descErr = capLength(description.trim(), LIMITS.projectDescription, "Description");
+    if (descErr) return NextResponse.json({ success: false, error: descErr }, { status: 400 });
+  }
+  if (emoji && emoji.length > LIMITS.emoji) {
+    return NextResponse.json({ success: false, error: "Invalid emoji" }, { status: 400 });
   }
 
   const { data: projectData, error: projectError } = await supabaseAdmin

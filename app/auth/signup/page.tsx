@@ -31,7 +31,7 @@ export default function SignUpPage() {
     }
 
     setPending(true);
-    const { error: err } = await signUp(email, password, displayName);
+    const { error: err, sessionCreated } = await signUp(email, password, displayName);
     setPending(false);
 
     if (err) {
@@ -39,10 +39,13 @@ export default function SignUpPage() {
       return;
     }
 
-    // If Supabase requires email confirmation the session won't exist yet.
-    // Show a prompt; otherwise the onAuthStateChange will trigger a redirect.
-    setCheckEmail(true);
-    setTimeout(() => router.replace("/projects"), 1500);
+    if (sessionCreated) {
+      // Email confirmation disabled — user is already signed in
+      router.replace("/projects");
+    } else {
+      // Email confirmation required — user must click the link
+      setCheckEmail(true);
+    }
   }
 
   if (checkEmail) {
@@ -62,7 +65,7 @@ export default function SignUpPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
-          <Link href="/" className="font-serif text-3xl text-foreground tracking-tight hover:opacity-80 transition-opacity">
+          <Link href="/" className="font-serif text-6xl text-foreground tracking-tight hover:opacity-80 transition-opacity">
             Elenchus
           </Link>
           <p className="text-sm text-muted mt-2">Create your account</p>
@@ -130,6 +133,14 @@ export default function SignUpPage() {
           <Link href="/auth/login" className="text-foreground font-medium hover:underline">
             Sign in
           </Link>
+        </p>
+
+        <p className="text-center text-xs text-muted mt-3">
+          By creating an account you agree to our{" "}
+          <Link href="/privacy" className="hover:text-foreground transition-colors">
+            privacy policy
+          </Link>
+          .
         </p>
       </div>
     </div>
