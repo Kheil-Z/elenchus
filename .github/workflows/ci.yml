@@ -27,7 +27,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Type check
-        run: pnpm tsc --noEmit
+        run: pnpm exec tsc --noEmit
 
       - name: Build
         # Dummy env vars so Next.js can resolve NEXT_PUBLIC_* references at build time.
@@ -37,4 +37,4 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
           SUPABASE_SERVICE_ROLE_KEY: placeholder
           ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
-        run: pnpm next build
+        run: pnpm build
