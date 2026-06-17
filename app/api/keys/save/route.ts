@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { encrypt } from "@/lib/encrypt";
+import { LIMITS } from "@/lib/validate";
 import type { Database } from "@/lib/types/database";
 
 const supabaseAdmin = createClient<Database>(
@@ -30,8 +31,11 @@ export async function POST(req: NextRequest) {
   if (!apiKey?.trim()) {
     return NextResponse.json({ success: false, error: "apiKey is required" }, { status: 400 });
   }
-  if (provider !== "anthropic" && provider !== "gemini") {
-    return NextResponse.json({ success: false, error: "provider must be 'anthropic' or 'gemini'" }, { status: 400 });
+  if (apiKey.trim().length > LIMITS.apiKey) {
+    return NextResponse.json({ success: false, error: "Invalid API key" }, { status: 400 });
+  }
+  if (provider !== "anthropic" && provider !== "gemini" && provider !== "openai") {
+    return NextResponse.json({ success: false, error: "Invalid provider" }, { status: 400 });
   }
 
   const { validateApiKey } = await import("@/lib/api-key");

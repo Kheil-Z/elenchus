@@ -13,7 +13,7 @@ import { DEFAULT_MODEL } from "@/lib/llm";
 import { getConversation, getMessages, getProject, getProjectMembers, subscribeToMessages } from "@/lib/db";
 import { supabase } from "@/lib/supabase";
 import type { ApiKeyStatus, LLMProvider } from "@/lib/api-key";
-import type { ChatMessage, ChatMember, ChatDocument, ContentSegment } from "@/lib/chat-types";
+import type { ChatMessage, ChatMember, ChatDocument, ContentSegment, DocMode } from "@/lib/chat-types";
 import type { UserColor } from "@/lib/types";
 import type { Message, Conversation, Project } from "@/lib/types/database";
 import type { ProjectMemberWithUser } from "@/lib/db";
@@ -78,6 +78,7 @@ export default function ChatPage() {
   const [currentProvider, setCurrentProvider] = useState<LLMProvider | null>(null);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [docMode, setDocMode] = useState<DocMode>("always");
   const colorMapRef = useRef<Map<string, UserColor>>(new Map());
   const onlineIdsRef = useRef<Set<string>>(new Set());
 
@@ -88,6 +89,16 @@ export default function ChatPage() {
       if (provider) setSelectedModel(DEFAULT_MODEL[provider]);
     });
   }, []);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(`doc-mode:${conversationId}`) as DocMode | null;
+    if (saved === "always" || saved === "never") setDocMode(saved);
+  }, [conversationId]);
+
+  function handleDocModeChange(mode: DocMode) {
+    setDocMode(mode);
+    localStorage.setItem(`doc-mode:${conversationId}`, mode);
+  }
 
   useEffect(() => {
     if (!user) return;
@@ -130,6 +141,7 @@ export default function ChatPage() {
                     sizeBytes: d.size_bytes,
                     mimeType: d.mime_type,
                     createdAt: d.created_at,
+                    contentLength: (d as typeof d & { content_length?: number | null }).content_length ?? null,
                   }))
               );
             }
@@ -230,6 +242,7 @@ export default function ChatPage() {
         sizeBytes: d.size_bytes,
         mimeType: d.mime_type,
         createdAt: d.created_at,
+        contentLength: (d as typeof d & { content_length?: number | null }).content_length ?? null,
       };
       setChatDocuments((prev) => [newDoc, ...prev]);
       return newDoc;
@@ -260,12 +273,13 @@ export default function ChatPage() {
     const fullContent = [content.trim(), docSentinels].filter(Boolean).join("\n");
 
     if (fullContent) {
-      const isClaudeCall = fullContent.includes("@claude") || fullContent.includes("@gemini") || fullContent.includes("@openai");
+      const lower = fullContent.toLowerCase();
+      const isClaudeCall = lower.includes("@claude") || lower.includes("@gemini") || lower.includes("@openai") || lower.includes("@chatgpt");
       if (isClaudeCall) setAwaitingClaude(true);
 
       const url = isClaudeCall ? "/api/llm" : "/api/messages/send";
       const body = isClaudeCall
-        ? { conversationId, message: fullContent, model: selectedModel ?? undefined }
+        ? { conversationId, message: fullContent, model: selectedModel ?? undefined, docMode }
         : { conversationId, content: fullContent, authorDisplayName: profile.display_name };
 
       try {
@@ -312,6 +326,10 @@ export default function ChatPage() {
     if (json.success) setConversationName(newName);
   }
 
+  function handleDocumentDeleted(docId: string) {
+    setChatDocuments((prev) => prev.filter((d) => d.id !== docId));
+  }
+
   async function handleUploadDoc(file: File): Promise<ChatDocument | null> {
     const doc = await uploadDoc(file);
     if (!doc || !profile) return doc;
@@ -333,10 +351,61 @@ export default function ChatPage() {
     return doc;
   }
 
-  const tokenCount = messages.reduce((sum, m) => {
+  // ── Token context estimate ────────────────────────────────────────────────
+  const messageTokens = messages.reduce((sum, m) => {
     const chars = m.segments.reduce((s, seg) => s + (seg.type === "text" ? seg.text.length : 0), 0);
     return sum + Math.ceil(chars / 4);
   }, 0);
+
+  // System prompt: use actual length if the project has a custom one, otherwise ~90 tokens for the default
+  const systemPromptTokens = project?.system_prompt
+    ? Math.ceil(project.system_prompt.length / 4)
+    : 90;
+
+  // Documents: both modes pay the same per-doc manifest cost (name line).
+  // "always" additionally adds an estimate of the content tokens for each doc.
+  //
+  // Content token estimate priority:
+  //   1. content_length (chars of extracted text) / 4  — most accurate
+  //   2. File-size fallback for MIME types that should be extractable:
+  //      - PDF: ~20% of bytes are text (rest is structure, fonts, images)
+  //      - text/*: ~90% of bytes are text
+  //   3. ~800 — images (sent as vision content blocks; cost varies by size/model)
+  //   4. 0 — other non-image binaries (not sent)
+  let docTokens = 0;
+  if (chatDocuments.length > 0) {
+    const SECTION_OVERHEAD = 15;
+    const perDocTokens = chatDocuments.reduce((sum, d) => {
+      const manifestLine = Math.ceil((d.filename.length + 20) / 4);
+      let contentTok = 0;
+      if (docMode === "always") {
+        if (typeof d.contentLength === "number" && d.contentLength > 0) {
+          contentTok = Math.ceil(d.contentLength / 4);
+        } else if (d.contentLength === null) {
+          // Extraction not attempted or failed — estimate from file size by MIME type
+          const mime = (d.mimeType ?? "").toLowerCase();
+          if (mime === "application/pdf") {
+            contentTok = Math.ceil(d.sizeBytes * 0.2 / 4);
+          } else if (
+            mime.startsWith("text/") ||
+            mime === "application/json" ||
+            mime === "application/xml" ||
+            mime === "application/csv"
+          ) {
+            contentTok = Math.ceil(d.sizeBytes * 0.9 / 4);
+          } else if (mime.startsWith("image/")) {
+            contentTok = 800; // rough average vision token cost per image
+          }
+          // other non-image binaries: 0 — not sent
+        }
+        // contentLength === 0 means extraction succeeded but returned empty (e.g. scanned PDF)
+      }
+      return sum + manifestLine + contentTok;
+    }, 0);
+    docTokens = SECTION_OVERHEAD + perDocTokens;
+  }
+
+  const tokenCount = Math.max(0, messageTokens + systemPromptTokens + docTokens) || 0;
 
   // Compute per-member share of AI token spend in this conversation
   const spendByUser = new Map<string, number>();
@@ -366,8 +435,11 @@ export default function ChatPage() {
           conversationId={conversationId}
           currentUserName={currentUserName}
           onUploadFile={conversation ? handleUploadDoc : undefined}
+          onDocumentDeleted={handleDocumentDeleted}
           mentionsOnly={mentionsOnly}
           onMentionsToggle={() => setMentionsOnly((v) => !v)}
+          docMode={docMode}
+          onDocModeChange={handleDocModeChange}
         />
       }
     >
@@ -380,7 +452,7 @@ export default function ChatPage() {
         aiName={currentProvider === "anthropic" ? "Claude" : currentProvider === "gemini" ? "Gemini" : currentProvider === "openai" ? "ChatGPT" : "AI"}
       />
       {sendError && (
-        <div className="mx-4 mb-2 flex items-center gap-2.5 bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-sm">
+        <div className="mx-4 mb-2 flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm" style={{ color: "var(--color-error)", backgroundColor: "var(--color-error-bg)", border: "1px solid var(--color-error-border)" }}>
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="shrink-0">
             <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.3" />
             <path d="M7 4.5v3M7 9.5v.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
@@ -391,7 +463,7 @@ export default function ChatPage() {
               Settings
             </a>
           )}
-          <button onClick={() => setSendError(null)} aria-label="Dismiss" className="shrink-0 text-red-400 hover:text-red-700 transition-colors">
+          <button onClick={() => setSendError(null)} aria-label="Dismiss" className="shrink-0 opacity-60 hover:opacity-100 transition-opacity">
             ×
           </button>
         </div>

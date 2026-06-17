@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { LeftNav } from "@/components/LeftNav";
 import { Avatar } from "@/components/Avatar";
 import { saveApiKey, revokeApiKey, getApiKeyStatus } from "@/lib/api-key";
 import { updateUserProfile } from "@/lib/db";
 import { useAuth } from "@/lib/auth-context";
+import { supabase } from "@/lib/supabase";
 import { PROVIDER_DISPLAY_NAME } from "@/lib/llm";
 import type { ApiKeyStatus, LLMProvider } from "@/lib/api-key";
 import type { UserColor } from "@/lib/types";
@@ -60,6 +62,7 @@ const COLOR_OPTIONS: { value: UserColor; bg: string; ring: string; label: string
 
 export default function SettingsPage() {
   const { profile, user, refreshProfile } = useAuth();
+  const router = useRouter();
   const [keyInput, setKeyInput] = useState("");
   const [status, setStatus] = useState<ApiKeyStatus | "loading">("loading");
   const [selectedProvider, setSelectedProvider] = useState<LLMProvider>("anthropic");
@@ -72,6 +75,11 @@ export default function SettingsPage() {
   const [selectedColor, setSelectedColor] = useState<UserColor>((profile?.color as UserColor) ?? "blue");
   const [colorSaving, setColorSaving] = useState(false);
   const [colorFeedback, setColorFeedback] = useState<string | null>(null);
+
+  const [deleteModalOpen, setDeleteModalOpen]     = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleting, setDeleting]                   = useState(false);
+  const [deleteError, setDeleteError]             = useState<string | null>(null);
 
   useEffect(() => {
     if (profile?.color) setSelectedColor(profile.color as UserColor);
@@ -133,6 +141,27 @@ export default function SettingsPage() {
       setIsEditing(true);
       setFeedback({ type: "success", message: "API key revoked." });
     }
+  }
+
+  async function handleDeleteAccount() {
+    setDeleting(true);
+    setDeleteError(null);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { setDeleteError("Not authenticated — please refresh and try again."); setDeleting(false); return; }
+
+    const res = await fetch("/api/account/delete", {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      setDeleteError(json.error ?? "Something went wrong — please try again.");
+      setDeleting(false);
+      return;
+    }
+    // Sign out locally — the server already deleted the auth user
+    await supabase.auth.signOut();
+    router.replace("/auth/login");
   }
 
   const hasKey = status === "active";
@@ -197,7 +226,7 @@ export default function SettingsPage() {
                   {colorSaving ? "Saving…" : "Save colour"}
                 </button>
                 {colorFeedback && (
-                  <p className="text-sm text-green-700">{colorFeedback}</p>
+                  <p className="text-sm" style={{ color: "var(--color-success)" }}>{colorFeedback}</p>
                 )}
               </div>
             </div>
@@ -284,7 +313,7 @@ export default function SettingsPage() {
                 })()}
 
                 {feedback && (
-                  <p className={`text-sm ${feedback.type === "success" ? "text-green-700" : "text-red-600"}`}>
+                  <p className="text-sm" style={{ color: feedback.type === "success" ? "var(--color-success)" : "var(--color-error)" }}>
                     {feedback.message}
                   </p>
                 )}
@@ -311,7 +340,7 @@ export default function SettingsPage() {
 
             {!isEditing && hasKey && feedback && (
               <div className="px-6 py-3">
-                <p className={`text-sm ${feedback.type === "success" ? "text-green-700" : "text-red-600"}`}>
+                <p className="text-sm" style={{ color: feedback.type === "success" ? "var(--color-success)" : "var(--color-error)" }}>
                   {feedback.message}
                 </p>
               </div>
@@ -329,7 +358,7 @@ export default function SettingsPage() {
                 <button
                   onClick={handleRevoke}
                   disabled={revoking}
-                  className="text-sm text-red-600 border border-red-200 px-4 py-2 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                  className="text-sm px-4 py-2 rounded-lg hover-destructive transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0" style={{ color: "var(--color-error)", border: "1px solid var(--color-error-border)" }}
                 >
                   {revoking ? "Revoking…" : "Revoke"}
                 </button>
@@ -376,8 +405,99 @@ export default function SettingsPage() {
               })()}
             </div>
           </section>
+          {/* Danger zone */}
+          <section className="mt-6 bg-surface rounded-xl px-6 py-5" style={{ border: "2px solid var(--color-error-border)" }}>
+            <p className="mb-4">
+              <span className="text-base font-medium" style={{ color: "var(--color-error)" }}>⚠️ Danger zone</span>
+              <span className="text-sm text-muted"> — Irreversible actions, proceed with care.</span>
+            </p>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-foreground">Delete account</p>
+                <p className="text-xs text-muted mt-0.5">
+                  Permanently removes your account and all projects you created.
+                </p>
+              </div>
+              <button
+                onClick={() => { setDeleteModalOpen(true); setDeleteConfirmText(""); setDeleteError(null); }}
+                className="text-sm px-4 py-2 rounded-lg shrink-0 transition-colors"
+                style={{ color: "var(--color-error)", border: "1px solid var(--color-error-border)" }}
+              >
+                Delete account
+              </button>
+            </div>
+          </section>
         </div>
       </main>
+
+      {/* Delete confirmation modal */}
+      {deleteModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          onClick={(e) => { if (e.target === e.currentTarget && !deleting) { setDeleteModalOpen(false); } }}
+        >
+          <div className="bg-surface border border-border rounded-2xl w-full max-w-md p-6 flex flex-col gap-5 shadow-xl">
+            <div className="flex flex-col gap-1.5">
+              <h2 className="text-lg font-semibold text-foreground">Delete your account?</h2>
+              <p className="text-sm text-muted">This cannot be undone. The following will be permanently deleted:</p>
+              <ul className="text-sm text-muted mt-1 space-y-1">
+                <li className="flex items-start gap-2">
+                  <span className="mt-1.5 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
+                  Your account and profile
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="mt-1.5 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
+                  All projects you created, including their conversations, messages, and files
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="mt-1.5 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
+                  Your API key
+                </li>
+              </ul>
+              <p className="text-sm text-muted mt-1">
+                Files you uploaded to <span className="text-foreground">other people&apos;s projects</span> will remain accessible to those teams.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label htmlFor="delete-confirm" className="text-sm font-medium text-foreground">
+                Type <span className="font-mono font-semibold">DELETE</span> to confirm
+              </label>
+              <input
+                id="delete-confirm"
+                type="text"
+                value={deleteConfirmText}
+                onChange={(e) => { setDeleteConfirmText(e.target.value); setDeleteError(null); }}
+                placeholder="DELETE"
+                autoComplete="off"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted/40 focus:outline-none focus:ring-2 focus:ring-foreground/20"
+              />
+              {deleteError && (
+                <p className="text-sm" style={{ color: "var(--color-error)" }}>{deleteError}</p>
+              )}
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setDeleteModalOpen(false)}
+                disabled={deleting}
+                className="text-sm px-4 py-2 rounded-lg border border-border text-muted hover:text-foreground hover:border-foreground/30 transition-colors disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteAccount}
+                disabled={deleteConfirmText !== "DELETE" || deleting}
+                className="text-sm px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ backgroundColor: "var(--color-error)", color: "#fff" }}
+              >
+                {deleting ? "Deleting…" : "Delete my account"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -385,16 +505,16 @@ export default function SettingsPage() {
 function StatusBadge({ status }: { status: ApiKeyStatus }) {
   if (status === "active") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-sm text-green-700">
-        <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+      <span className="inline-flex items-center gap-1.5 text-sm" style={{ color: "var(--color-success)" }}>
+        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: "var(--color-success)" }} />
         API key set
       </span>
     );
   }
   if (status === "error") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-sm text-red-600">
-        <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+      <span className="inline-flex items-center gap-1.5 text-sm" style={{ color: "var(--color-error)" }}>
+        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: "var(--color-error)" }} />
         Error
       </span>
     );

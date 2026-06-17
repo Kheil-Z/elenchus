@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import type { User as Profile } from "@/lib/types/database";
@@ -10,7 +10,7 @@ interface AuthContextValue {
   profile: Profile | null;
   isLoading: boolean;
   refreshProfile: () => Promise<void>;
-  signUp: (email: string, password: string, displayName: string) => Promise<{ error: string | null }>;
+  signUp: (email: string, password: string, displayName: string) => Promise<{ error: string | null; sessionCreated: boolean }>;
   login: (email: string, password: string) => Promise<{ error: string | null }>;
   logout: () => Promise<void>;
 }
@@ -21,6 +21,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser]       = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const isLoggingOutRef = useRef(false);
 
   async function fetchProfile(userId: string) {
     const { data, error } = await supabase
@@ -39,12 +40,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id);
-      } else {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_OUT") {
+        setUser(null);
         setProfile(null);
+        if (!isLoggingOutRef.current) {
+          // Session expired or was revoked — not a user-initiated logout
+          window.location.replace("/auth/login?expired=1");
+        }
+        isLoggingOutRef.current = false;
+      } else {
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          fetchProfile(session.user.id);
+        } else {
+          setProfile(null);
+        }
       }
     });
 
@@ -52,12 +63,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   async function signUp(email: string, password: string, displayName: string) {
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { display_name: displayName } },
+      options: {
+        data: { display_name: displayName },
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      },
     });
-    return { error: error?.message ?? null };
+    return { error: error?.message ?? null, sessionCreated: !!data.session };
   }
 
   async function login(email: string, password: string) {
@@ -66,6 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function logout() {
+    isLoggingOutRef.current = true;
     await supabase.auth.signOut();
   }
 

@@ -1,6 +1,8 @@
 @import "tailwindcss";
 
-@theme inline {
+/* Colors in @theme (no inline) so Tailwind emits var(--color-*) in utilities,
+   enabling runtime CSS variable overrides for dark mode. */
+@theme {
   /* Design tokens */
   --color-background: #F7F5F0;
   --color-surface: #FFFFFF;
@@ -15,10 +17,30 @@
   --color-user-coral: #F87171;
   --color-user-amber: #F59E0B;
 
-  /* Fonts */
+  /* Semantic UI tokens */
+  --color-overlay: rgba(0, 0, 0, 0.4);
+  --color-error: #DC2626;
+  --color-error-bg: rgba(220, 38, 38, 0.08);
+  --color-error-border: rgba(220, 38, 38, 0.2);
+  --color-success: #16A34A;
+  --color-badge-edit: #1D4ED8;
+  --color-badge-edit-bg: #EFF6FF;
+  --color-badge-edit-border: #BFDBFE;
+  --color-badge-default: #6b6b6b;
+  --color-badge-default-bg: #F7F5F0;
+  --color-badge-default-border: rgba(0, 0, 0, 0.10);
+}
+
+/* Fonts must use inline because they reference external Next.js font CSS vars */
+@theme inline {
   --font-cinzel: var(--font-cinzel);
   --font-serif: var(--font-instrument-serif);
   --font-sans: var(--font-dm-sans);
+}
+
+.hover-destructive:hover {
+  color: var(--color-error) !important;
+  background-color: var(--color-error-bg) !important;
 }
 
 body {
@@ -27,3 +49,100 @@ body {
   font-family: var(--font-dm-sans), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+
+/* Dark theme tokens */
+:root[data-theme="dark"] {
+  --color-background: #111111;
+  --color-surface: #1C1C1C;
+  --color-border: rgba(255, 255, 255, 0.09);
+  --color-foreground: #F0EFEC;
+  --color-muted: #8A8A8A;
+
+  --color-overlay: rgba(0, 0, 0, 0.65);
+  --color-error: #F87171;
+  --color-error-bg: rgba(248, 113, 113, 0.1);
+  --color-error-border: rgba(248, 113, 113, 0.25);
+  --color-success: #4ADE80;
+  --color-badge-edit: #93C5FD;
+  --color-badge-edit-bg: rgba(147, 197, 253, 0.1);
+  --color-badge-edit-border: rgba(147, 197, 253, 0.3);
+  --color-badge-default: #8A8A8A;
+  --color-badge-default-bg: rgba(255, 255, 255, 0.05);
+  --color-badge-default-border: rgba(255, 255, 255, 0.10);
+}
+
+/* System preference — applied when no explicit theme is set */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    --color-background: #111111;
+    --color-surface: #1C1C1C;
+    --color-border: rgba(255, 255, 255, 0.09);
+    --color-foreground: #F0EFEC;
+    --color-muted: #8A8A8A;
+
+    --color-overlay: rgba(0, 0, 0, 0.65);
+    --color-error: #F87171;
+    --color-error-bg: rgba(248, 113, 113, 0.1);
+    --color-error-border: rgba(248, 113, 113, 0.25);
+    --color-success: #4ADE80;
+    --color-badge-edit: #93C5FD;
+    --color-badge-edit-bg: rgba(147, 197, 253, 0.1);
+    --color-badge-edit-border: rgba(147, 197, 253, 0.3);
+    --color-badge-default: #8A8A8A;
+    --color-badge-default-bg: rgba(255, 255, 255, 0.05);
+    --color-badge-default-border: rgba(255, 255, 255, 0.10);
+  }
+}
+
+/* ── Tailwind token utility overrides ───────────────────────────────────────── */
+/* Unlayered CSS beats @layer utilities regardless of how @theme compiled them.  */
+/* Using var() here makes these utilities respond to the CSS variable overrides  */
+/* set by :root[data-theme="dark"] and @media (prefers-color-scheme: dark).      */
+
+/* Backgrounds */
+.bg-background        { background-color: var(--color-background); }
+.bg-surface           { background-color: var(--color-surface); }
+.bg-foreground        { background-color: var(--color-foreground); }
+.bg-border            { background-color: var(--color-border); }
+.bg-muted             { background-color: var(--color-muted); }
+.bg-background\/60    { background-color: color-mix(in oklch, var(--color-background) 60%, transparent); }
+.bg-foreground\/10    { background-color: color-mix(in oklch, var(--color-foreground) 10%, transparent); }
+.bg-foreground\/20    { background-color: color-mix(in oklch, var(--color-foreground) 20%, transparent); }
+.bg-muted\/40         { background-color: color-mix(in oklch, var(--color-muted) 40%, transparent); }
+.bg-muted\/50         { background-color: color-mix(in oklch, var(--color-muted) 50%, transparent); }
+.bg-surface\/80       { background-color: color-mix(in oklch, var(--color-surface) 80%, transparent); }
+
+/* Text */
+.text-foreground      { color: var(--color-foreground); }
+.text-muted           { color: var(--color-muted); }
+.text-background      { color: var(--color-background); }
+.text-surface         { color: var(--color-surface); }
+.text-border          { color: var(--color-border); }
+.text-muted\/30       { color: color-mix(in oklch, var(--color-muted) 30%, transparent); }
+.text-muted\/35       { color: color-mix(in oklch, var(--color-muted) 35%, transparent); }
+.text-muted\/40       { color: color-mix(in oklch, var(--color-muted) 40%, transparent); }
+.text-muted\/50       { color: color-mix(in oklch, var(--color-muted) 50%, transparent); }
+.text-muted\/60       { color: color-mix(in oklch, var(--color-muted) 60%, transparent); }
+
+/* Borders */
+.border-border         { border-color: var(--color-border); }
+.border-border\/40     { border-color: color-mix(in oklch, var(--color-border) 40%, transparent); }
+.border-foreground\/20 { border-color: color-mix(in oklch, var(--color-foreground) 20%, transparent); }
+.border-foreground\/40 { border-color: color-mix(in oklch, var(--color-foreground) 40%, transparent); }
+
+/* Hover */
+.hover\:bg-background:hover         { background-color: var(--color-background); }
+.hover\:bg-surface:hover            { background-color: var(--color-surface); }
+.hover\:bg-border\/60:hover         { background-color: color-mix(in oklch, var(--color-border) 60%, transparent); }
+.hover\:text-foreground:hover       { color: var(--color-foreground); }
+.hover\:text-muted:hover            { color: var(--color-muted); }
+.hover\:border-border:hover         { border-color: var(--color-border); }
+.hover\:border-foreground\/15:hover { border-color: color-mix(in oklch, var(--color-foreground) 15%, transparent); }
+.hover\:border-foreground\/20:hover { border-color: color-mix(in oklch, var(--color-foreground) 20%, transparent); }
+.hover\:border-foreground\/30:hover { border-color: color-mix(in oklch, var(--color-foreground) 30%, transparent); }
+
+/* Focus */
+.focus\:border-foreground:focus      { border-color: var(--color-foreground); }
+.focus\:border-foreground\/25:focus  { border-color: color-mix(in oklch, var(--color-foreground) 25%, transparent); }
+.focus\:border-foreground\/30:focus  { border-color: color-mix(in oklch, var(--color-foreground) 30%, transparent); }
+.focus\:border-error:focus           { border-color: var(--color-error); }

@@ -73,7 +73,7 @@ export function NewProjectModal({ onClose }: NewProjectModalProps) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ backgroundColor: "rgba(0,0,0,0.25)" }}
+      style={{ backgroundColor: "var(--color-overlay)" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
@@ -143,7 +143,7 @@ export function NewProjectModal({ onClose }: NewProjectModalProps) {
           />
 
           {error && (
-            <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+            <p className="text-xs rounded-lg px-3 py-2" style={{ color: "var(--color-error)", backgroundColor: "var(--color-error-bg)", border: "1px solid var(--color-error-border)" }}>
               {error}
             </p>
           )}

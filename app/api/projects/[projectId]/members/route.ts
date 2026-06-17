@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { validateEmail } from "@/lib/validate";
 import type { Database } from "@/lib/types/database";
 
 const supabaseAdmin = createClient<Database>(
@@ -31,6 +32,8 @@ export async function POST(
 
   const { email } = body;
   if (!email?.trim()) return NextResponse.json({ success: false, error: "Email is required" }, { status: 400 });
+  const emailErr = validateEmail(email.trim());
+  if (emailErr) return NextResponse.json({ success: false, error: emailErr }, { status: 400 });
 
   // Caller must be an active can_edit member
   const { data: callerData } = await supabaseAdmin

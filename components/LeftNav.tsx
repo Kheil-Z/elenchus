@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { getApiKeyStatus } from "@/lib/api-key";
 import { getProjects } from "@/lib/db";
@@ -13,7 +12,6 @@ import type { Project } from "@/lib/types/database";
 
 export function LeftNav({ activeProjectId }: { activeProjectId?: string }) {
   const { profile, user, logout } = useAuth();
-  const router = useRouter();
   const [apiKeyStatus, setApiKeyStatus] = useState<"active" | "not_set" | "error" | "loading">("loading");
   const [myProjects, setMyProjects] = useState<Project[]>([]);
   const [joinedProjects, setJoinedProjects] = useState<Project[]>([]);
@@ -34,7 +32,6 @@ export function LeftNav({ activeProjectId }: { activeProjectId?: string }) {
 
   async function handleLogout() {
     await logout();
-    router.replace("/auth/login");
   }
 
   return (
@@ -43,7 +40,7 @@ export function LeftNav({ activeProjectId }: { activeProjectId?: string }) {
       <div className="h-14 flex items-center px-4 border-b border-border shrink-0">
         <Link
           href="/"
-          className="font-serif text-xl text-foreground tracking-tight hover:opacity-80 transition-opacity"
+          className="font-serif text-[30px] text-foreground tracking-tight hover:opacity-80 transition-opacity"
         >
           Elenchus
         </Link>
@@ -136,16 +133,16 @@ export function LeftNav({ activeProjectId }: { activeProjectId?: string }) {
             className="w-1.5 h-1.5 rounded-full shrink-0"
             style={{
               backgroundColor:
-                apiKeyStatus === "active"  ? "#22C55E" :
+                apiKeyStatus === "active"  ? "var(--color-success)" :
                 apiKeyStatus === "loading" ? "var(--color-border)" :
-                                             "#F87171",
+                                             "var(--color-error)",
             }}
           />
           <span className="flex-1 truncate" style={{ color: apiKeyStatus === "active" ? "var(--color-muted)" : "#B45309" }}>
             {apiKeyStatus === "active" ? "API key set" : apiKeyStatus === "loading" ? "Checking key…" : "No API key set"}
           </span>
           {apiKeyStatus !== "active" && apiKeyStatus !== "loading" && (
-            <span className="text-amber-700 font-medium shrink-0">Set</span>
+            <span className="font-medium shrink-0" style={{ color: "var(--color-error)" }}>Set</span>
           )}
         </Link>
 

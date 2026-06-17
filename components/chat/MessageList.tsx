@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, type ReactNode } from "react";
 import { MarkdownHooks as Markdown } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage, ContentSegment } from "@/lib/chat-types";
@@ -8,9 +8,23 @@ import type { UserColor } from "@/lib/types";
 import { Avatar } from "@/components/Avatar";
 import { DocPreviewModal } from "@/components/DocPreviewModal";
 
+// ── Dark-mode detection ───────────────────────────────────────────────────────
+
+function useDarkMode() {
+  const [dark, setDark] = useState(false);
+  useEffect(() => {
+    const check = () => setDark(document.documentElement.getAttribute("data-theme") === "dark");
+    check();
+    const obs = new MutationObserver(check);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => obs.disconnect();
+  }, []);
+  return dark;
+}
+
 // ── Color tints per user ──────────────────────────────────────────────────────
 
-const bubbleTint: Record<UserColor, { bg: string; border: string }> = {
+const bubbleTintLight: Record<UserColor, { bg: string; border: string }> = {
   blue:   { bg: "#EFF6FF", border: "#DBEAFE" },
   green:  { bg: "#F0FDF4", border: "#DCFCE7" },
   purple: { bg: "#FAF5FF", border: "#F3E8FF" },
@@ -24,7 +38,21 @@ const bubbleTint: Record<UserColor, { bg: string; border: string }> = {
   lime:   { bg: "#F7FEE7", border: "#ECFCCB" },
 };
 
-const nameColor: Record<UserColor, string> = {
+const bubbleTintDark: Record<UserColor, { bg: string; border: string }> = {
+  blue:   { bg: "rgba(59, 130, 246, 0.12)",  border: "rgba(59, 130, 246, 0.22)" },
+  green:  { bg: "rgba(34, 197, 94, 0.12)",   border: "rgba(34, 197, 94, 0.22)" },
+  purple: { bg: "rgba(168, 85, 247, 0.12)",  border: "rgba(168, 85, 247, 0.22)" },
+  coral:  { bg: "rgba(248, 113, 113, 0.12)", border: "rgba(248, 113, 113, 0.22)" },
+  amber:  { bg: "rgba(245, 158, 11, 0.12)",  border: "rgba(245, 158, 11, 0.22)" },
+  teal:   { bg: "rgba(20, 184, 166, 0.12)",  border: "rgba(20, 184, 166, 0.22)" },
+  rose:   { bg: "rgba(236, 72, 153, 0.12)",  border: "rgba(236, 72, 153, 0.22)" },
+  orange: { bg: "rgba(249, 115, 22, 0.12)",  border: "rgba(249, 115, 22, 0.22)" },
+  indigo: { bg: "rgba(99, 102, 241, 0.12)",  border: "rgba(99, 102, 241, 0.22)" },
+  sky:    { bg: "rgba(14, 165, 233, 0.12)",  border: "rgba(14, 165, 233, 0.22)" },
+  lime:   { bg: "rgba(132, 204, 22, 0.12)",  border: "rgba(132, 204, 22, 0.22)" },
+};
+
+const nameColorLight: Record<UserColor, string> = {
   blue:   "#1D4ED8",
   green:  "#15803D",
   purple: "#7E22CE",
@@ -36,6 +64,20 @@ const nameColor: Record<UserColor, string> = {
   indigo: "#4338CA",
   sky:    "#0369A1",
   lime:   "#3F6212",
+};
+
+const nameColorDark: Record<UserColor, string> = {
+  blue:   "#93C5FD",
+  green:  "#86EFAC",
+  purple: "#D8B4FE",
+  coral:  "#FCA5A5",
+  amber:  "#FCD34D",
+  teal:   "#5EEAD4",
+  rose:   "#FBCFE8",
+  orange: "#FDBA74",
+  indigo: "#C7D2FE",
+  sky:    "#BAE6FD",
+  lime:   "#D9F99D",
 };
 
 // ── Document chip ─────────────────────────────────────────────────────────────
@@ -77,14 +119,15 @@ function DocChip({
 
 // ── Inline token renderer (**bold**, @mentions, plain text) ──────────────────
 
-function renderInline(token: string, key: string): React.ReactNode {
+function renderInline(token: string, key: string): ReactNode {
   if (/^\*\*[^*]+\*\*$/.test(token)) return <strong key={key}>{token.slice(2, -2)}</strong>;
   if (/^@[A-Za-z]+$/.test(token)) {
     if (token.toLowerCase() === "@claude")
       return (
         <span
           key={key}
-          className="inline-flex items-center bg-blue-100 text-blue-700 font-semibold rounded-md px-1.5 py-0.5 text-[0.82em] mx-0.5 align-baseline"
+          className="inline-flex items-center font-semibold rounded-md px-1.5 py-0.5 text-[0.82em] mx-0.5 align-baseline"
+          style={{ backgroundColor: "color-mix(in oklch, var(--color-user-blue) 15%, transparent)", color: "var(--color-user-blue)" }}
         >
           {token}
         </span>
@@ -93,7 +136,7 @@ function renderInline(token: string, key: string): React.ReactNode {
       <span
         key={key}
         className="font-medium rounded px-1 py-0.5 align-baseline"
-        style={{ backgroundColor: "rgba(0,0,0,0.05)", color: "inherit" }}
+        style={{ backgroundColor: "color-mix(in oklch, var(--color-foreground) 8%, transparent)", color: "inherit" }}
       >
         {token}
       </span>
@@ -107,7 +150,6 @@ function renderInline(token: string, key: string): React.ReactNode {
 type DocPreviewArg = { id: string; filename: string; uploader?: string; sizeBytes?: number; mimeType?: string | null; createdAt?: string };
 
 function renderSegments(segments: ContentSegment[], onDocPreview?: (doc: DocPreviewArg) => void) {
-  // Each paragraph is an array of inline React nodes (text tokens + doc chips).
   const paragraphs: React.ReactNode[][] = [[]];
 
   for (let si = 0; si < segments.length; si++) {
@@ -162,7 +204,7 @@ function MarkdownContent({ content }: { content: string }) {
         li:         ({ children }) => <li className="leading-relaxed">{children}</li>,
         strong:     ({ children }) => <strong className="font-semibold">{children}</strong>,
         em:         ({ children }) => <em className="italic">{children}</em>,
-        hr:         ()             => <hr className="border-t border-black/10 my-3" />,
+        hr:         ()             => <hr className="border-t border-border my-3" />,
         blockquote: ({ children }) => <blockquote className="border-l-2 border-foreground/20 pl-3 text-muted italic mb-3 last:mb-0">{children}</blockquote>,
         a:          ({ href, children }) => (
           <a href={href ?? "#"} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:opacity-70 transition-opacity">
@@ -170,7 +212,10 @@ function MarkdownContent({ content }: { content: string }) {
           </a>
         ),
         pre: ({ children }) => (
-          <pre className="bg-black/[0.06] border border-black/[0.07] rounded-lg px-3 py-2.5 overflow-x-auto text-xs font-mono my-3 whitespace-pre">
+          <pre
+            className="rounded-lg px-3 py-2.5 overflow-x-auto text-xs font-mono my-3 whitespace-pre"
+            style={{ backgroundColor: "color-mix(in oklch, var(--color-foreground) 6%, transparent)", border: "1px solid var(--color-border)" }}
+          >
             {children}
           </pre>
         ),
@@ -178,7 +223,14 @@ function MarkdownContent({ content }: { content: string }) {
           if (className?.startsWith("language-") || String(children).includes("\n")) {
             return <code className={className}>{children}</code>;
           }
-          return <code className="bg-black/[0.07] rounded px-1 py-0.5 text-[0.85em] font-mono">{children}</code>;
+          return (
+            <code
+              className="rounded px-1 py-0.5 text-[0.85em] font-mono"
+              style={{ backgroundColor: "color-mix(in oklch, var(--color-foreground) 8%, transparent)" }}
+            >
+              {children}
+            </code>
+          );
         },
       }}
     >
@@ -187,7 +239,7 @@ function MarkdownContent({ content }: { content: string }) {
   );
 }
 
-function MessageBubble({ msg, isYou, onDocPreview }: { msg: ChatMessage; isYou: boolean; onDocPreview?: (doc: DocPreviewArg) => void }) {
+function MessageBubble({ msg, isYou, dark, onDocPreview }: { msg: ChatMessage; isYou: boolean; dark: boolean; onDocPreview?: (doc: DocPreviewArg) => void }) {
   const isAssistant = msg.role === "assistant";
 
   if (isAssistant) {
@@ -195,7 +247,7 @@ function MessageBubble({ msg, isYou, onDocPreview }: { msg: ChatMessage; isYou: 
       <div className="flex flex-row-reverse gap-3">
         <div
           className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-semibold select-none"
-          style={{ backgroundColor: "#E8E5E0", color: "#6b6b6b" }}
+          style={{ backgroundColor: "var(--color-surface)", color: "var(--color-muted)", border: "1px solid var(--color-border)" }}
         >
           {msg.authorName.slice(0, 2)}
         </div>
@@ -216,7 +268,7 @@ function MessageBubble({ msg, isYou, onDocPreview }: { msg: ChatMessage; isYou: 
           </div>
           <div
             className="rounded-2xl rounded-tr-sm px-4 py-3 text-sm text-foreground"
-            style={{ backgroundColor: "#F1F0EE", border: "1px solid #E2E0DC" }}
+            style={{ backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)" }}
           >
             <MarkdownContent
               content={msg.segments
@@ -231,14 +283,15 @@ function MessageBubble({ msg, isYou, onDocPreview }: { msg: ChatMessage; isYou: 
   }
 
   const color = msg.authorColor!;
-  const tint = bubbleTint[color];
+  const tint = dark ? bubbleTintDark[color] : bubbleTintLight[color];
+  const nameCol = dark ? nameColorDark[color] : nameColorLight[color];
 
   return (
     <div className="flex gap-3">
       <Avatar name={msg.authorName} color={color} size="sm" className="shrink-0 mt-0.5" />
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2 mb-2">
-          <span className="text-[13px] font-semibold" style={{ color: nameColor[color] }}>
+          <span className="text-[13px] font-semibold" style={{ color: nameCol }}>
             {isYou ? "You" : msg.authorName}
           </span>
           <span className="text-[11px] text-muted">{msg.timestamp}</span>
@@ -277,6 +330,7 @@ function messageContainsMention(msg: ChatMessage, name: string): boolean {
 export function MessageList({ messages, currentUserName, loading, sending, mentionsOnly, aiName = "AI" }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [docPreview, setDocPreview] = useState<DocPreviewArg | null>(null);
+  const dark = useDarkMode();
 
   const visibleMessages =
     mentionsOnly && currentUserName
@@ -314,13 +368,13 @@ export function MessageList({ messages, currentUserName, loading, sending, menti
           <p className="text-sm text-muted text-center py-8">No messages mentioning you yet.</p>
         )}
         {visibleMessages.map((msg) => (
-          <MessageBubble key={msg.id} msg={msg} isYou={msg.authorName === currentUserName} onDocPreview={setDocPreview} />
+          <MessageBubble key={msg.id} msg={msg} isYou={msg.authorName === currentUserName} dark={dark} onDocPreview={setDocPreview} />
         ))}
         {sending && (
           <div className="flex flex-row-reverse gap-3">
             <div
               className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-semibold select-none"
-              style={{ backgroundColor: "#E8E5E0", color: "#6b6b6b" }}
+              style={{ backgroundColor: "var(--color-surface)", color: "var(--color-muted)", border: "1px solid var(--color-border)" }}
             >
               {aiName.slice(0, 2)}
             </div>
@@ -330,7 +384,7 @@ export function MessageList({ messages, currentUserName, loading, sending, menti
               </div>
               <div
                 className="rounded-2xl rounded-tr-sm px-4 py-3 text-sm text-muted w-fit"
-                style={{ backgroundColor: "#F1F0EE", border: "1px solid #E2E0DC" }}
+                style={{ backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)" }}
               >
                 <span className="animate-pulse">Thinking…</span>
               </div>

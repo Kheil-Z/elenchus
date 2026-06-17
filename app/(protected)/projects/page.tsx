@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { LeftNav } from "@/components/LeftNav";
 import { Avatar } from "@/components/Avatar";
 import { NewProjectModal } from "@/components/NewProjectModal";
@@ -16,6 +15,7 @@ import type { ApiKeyStatus } from "@/lib/api-key";
 import type { UserColor } from "@/lib/types";
 import { PROJECT_EMOJIS } from "@/lib/types";
 import type { Project, Conversation } from "@/lib/types/database";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -99,7 +99,7 @@ function RenameModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ backgroundColor: "rgba(0,0,0,0.25)" }}
+      style={{ backgroundColor: "var(--color-overlay)" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="bg-surface border border-border rounded-2xl shadow-xl w-full max-w-sm mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
@@ -151,7 +151,7 @@ function RenameModal({
             ))}
           </div>
           {error && (
-            <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>
+            <p className="text-xs rounded-lg px-3 py-2" style={{ color: "var(--color-error)", backgroundColor: "var(--color-error-bg)", border: "1px solid var(--color-error-border)" }}>{error}</p>
           )}
           <div className="flex gap-2 pt-1">
             <button onClick={onClose} className="flex-1 text-sm text-muted border border-border rounded-xl py-2.5 hover:bg-background transition-colors">
@@ -219,7 +219,7 @@ function DeleteModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ backgroundColor: "rgba(0,0,0,0.35)" }}
+      style={{ backgroundColor: "var(--color-overlay)" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="bg-surface border border-border rounded-2xl shadow-xl w-full max-w-sm mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
@@ -227,7 +227,7 @@ function DeleteModal({
           <h2 className="font-serif text-lg text-foreground tracking-tight">Delete project</h2>
         </div>
         <div className="px-6 pb-6 flex flex-col gap-4">
-          <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-xs text-red-700 leading-relaxed">
+          <div className="rounded-xl px-4 py-3 text-xs leading-relaxed" style={{ color: "var(--color-error)", backgroundColor: "var(--color-error-bg)", border: "1px solid var(--color-error-border)" }}>
             <p className="font-semibold mb-1">This is permanent and cannot be undone.</p>
             <p>All conversations, messages, and documents inside <span className="font-medium">{project.name}</span> will be deleted for every member.</p>
           </div>
@@ -242,12 +242,12 @@ function DeleteModal({
               onChange={(e) => setConfirm(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && canDelete) handleDelete(); }}
               placeholder={project.name}
-              className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm text-foreground placeholder:text-muted/30 focus:outline-none focus:border-red-300 transition-colors"
+              className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm text-foreground placeholder:text-muted/30 focus:outline-none focus:border-error transition-colors"
             />
           </div>
 
           {error && (
-            <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>
+            <p className="text-xs rounded-lg px-3 py-2" style={{ color: "var(--color-error)", backgroundColor: "var(--color-error-bg)", border: "1px solid var(--color-error-border)" }}>{error}</p>
           )}
 
           <div className="flex gap-2">
@@ -257,8 +257,8 @@ function DeleteModal({
             <button
               onClick={handleDelete}
               disabled={!canDelete || deleting}
-              className="flex-1 text-sm font-medium text-white rounded-xl py-2.5 transition-all disabled:opacity-40"
-              style={{ backgroundColor: canDelete ? "#DC2626" : "#DC262660" }}
+              className="flex-1 text-sm font-medium rounded-xl py-2.5 transition-all disabled:opacity-40"
+              style={{ backgroundColor: canDelete ? "var(--color-error)" : "color-mix(in srgb, var(--color-error) 40%, transparent)", color: "var(--color-background)" }}
             >
               {deleting ? "Deleting…" : "Delete forever"}
             </button>
@@ -353,7 +353,7 @@ function ProjectCard({
             {isOwner ? (
               <button
                 onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onDelete(project); }}
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors text-left border-t border-border"
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm transition-colors text-left border-t border-border" style={{ color: "var(--color-error)" }}
               >
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                   <path d="M2 3h8M4 3V2h4v1M5 5.5v3M7 5.5v3M3 3l.5 7h5L9 3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
@@ -363,7 +363,7 @@ function ProjectCard({
             ) : (
               <button
                 onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onLeave(project); }}
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors text-left"
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm transition-colors text-left" style={{ color: "var(--color-error)" }}
               >
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                   <path d="M8 2H10.5A1.5 1.5 0 0 1 12 3.5V8.5A1.5 1.5 0 0 1 10.5 10H8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
@@ -490,7 +490,7 @@ function LeaveModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ backgroundColor: "rgba(0,0,0,0.25)" }}
+      style={{ backgroundColor: "var(--color-overlay)" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="bg-surface border border-border rounded-2xl shadow-xl w-full max-w-sm mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
@@ -502,7 +502,7 @@ function LeaveModal({
             You&apos;ll lose access to <span className="font-medium text-foreground">{project.name}</span> and all its conversations. The project owner can re-invite you later.
           </p>
           {error && (
-            <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>
+            <p className="text-xs rounded-lg px-3 py-2" style={{ color: "var(--color-error)", backgroundColor: "var(--color-error-bg)", border: "1px solid var(--color-error-border)" }}>{error}</p>
           )}
           <div className="flex gap-2">
             <button onClick={onClose} className="flex-1 text-sm text-muted border border-border rounded-xl py-2.5 hover:bg-background transition-colors">
@@ -511,7 +511,7 @@ function LeaveModal({
             <button
               onClick={handleLeave}
               disabled={leaving}
-              className="flex-1 text-sm font-medium text-white rounded-xl py-2.5 bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50"
+              className="flex-1 text-sm font-medium rounded-xl py-2.5 transition-colors disabled:opacity-50" style={{ backgroundColor: "var(--color-error)", color: "var(--color-background)" }}
             >
               {leaving ? "Leaving…" : "Leave project"}
             </button>
@@ -578,8 +578,7 @@ function SidebarButton({ label, icon, onClick }: { label: string; icon: React.Re
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ProjectsPage() {
-  const { profile, user, logout } = useAuth();
-  const router = useRouter();
+  const { profile, user } = useAuth();
   const [navOpen, setNavOpen] = useState(true);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [apiKeyStatus, setApiKeyStatus] = useState<ApiKeyStatus | "loading">("loading");
@@ -587,6 +586,7 @@ export default function ProjectsPage() {
   const [joinedProjects, setJoinedProjects] = useState<Project[]>([]);
   const [recentChats, setRecentChats] = useState<RecentChat[]>([]);
   const [totalConvCount, setTotalConvCount] = useState(0);
+  const [totalDocCount, setTotalDocCount] = useState(0);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsVersion, setProjectsVersion] = useState(0);
   const [memberPreviews, setMemberPreviews] = useState<Map<string, MemberPreview[]>>(new Map());
@@ -614,7 +614,8 @@ export default function ProjectsPage() {
       .then(({ data }) => {
         if (!data) return;
         setMonthlyCallCount(data.length);
-        setMonthlyTokens(data.reduce((sum, r) => sum + (r.input_tokens ?? 0) + (r.output_tokens ?? 0), 0));
+        const rows = data as { input_tokens: number | null; output_tokens: number | null }[];
+        setMonthlyTokens(rows.reduce((sum, r) => sum + (r.input_tokens ?? 0) + (r.output_tokens ?? 0), 0));
       });
   }, [user]);
 
@@ -667,6 +668,13 @@ export default function ProjectsPage() {
       });
 
       setTotalConvCount(total);
+
+      const { data: docRows } = await supabase
+        .from("documents")
+        .select("id", { count: "exact", head: false })
+        .in("project_id", projects.map((p) => p.id));
+      setTotalDocCount(docRows?.length ?? 0);
+
       setRecentChats(
         allConvs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 6)
       );
@@ -732,11 +740,6 @@ export default function ProjectsPage() {
   const displayEmail = user?.email ?? "";
   const displayColor = (profile?.color as UserColor) ?? "blue";
 
-  async function handleLogout() {
-    await logout();
-    router.replace("/auth/login");
-  }
-
   const allProjects = [...myProjects, ...joinedProjects];
 
   return (
@@ -784,7 +787,7 @@ export default function ProjectsPage() {
               </svg>
             </button>
 
-            <h1 className="font-serif text-xl text-foreground tracking-tight flex-1">Projects</h1>
+            <h1 className="font-serif text-[28px] text-foreground tracking-tight flex-1">Projects</h1>
 
             <button
               onClick={() => setNewProjectOpen(true)}
@@ -803,7 +806,7 @@ export default function ProjectsPage() {
             <div className="w-px h-3.5 bg-border" />
             <Stat value={totalConvCount} label="conversations" />
             <div className="w-px h-3.5 bg-border" />
-            <Stat value={0} label="documents" />
+            <Stat value={totalDocCount} label="documents" />
           </div>
 
           <div className="flex-1 overflow-y-auto">
@@ -886,9 +889,23 @@ export default function ProjectsPage() {
               )}
 
               {!projectsLoading && allProjects.length === 0 && (
-                <div className="text-center py-16">
-                  <p className="text-muted text-sm">No projects yet.</p>
-                  <p className="text-muted/60 text-xs mt-1">Create one to get started.</p>
+                <div className="flex flex-col items-center justify-center py-24 gap-5 text-center">
+                  <div className="w-14 h-14 rounded-2xl bg-surface border border-border flex items-center justify-center text-2xl select-none">
+                    📁
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-foreground">No projects yet</p>
+                    <p className="text-xs text-muted mt-1">Create a project to start collaborating with AI.</p>
+                  </div>
+                  <button
+                    onClick={() => setNewProjectOpen(true)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-foreground text-background text-sm font-medium hover:opacity-80 transition-opacity"
+                  >
+                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                      <path d="M5.5 1v9M1 5.5h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                    </svg>
+                    New project
+                  </button>
                 </div>
               )}
             </div>
@@ -920,9 +937,9 @@ export default function ProjectsPage() {
                 className="w-1.5 h-1.5 rounded-full shrink-0"
                 style={{
                   backgroundColor:
-                    apiKeyStatus === "active" ? "#22C55E" :
+                    apiKeyStatus === "active" ? "var(--color-success)" :
                     apiKeyStatus === "loading" ? "var(--color-border)" :
-                    "#F87171",
+                    "var(--color-error)",
                 }}
               />
               <span className="text-muted flex-1 truncate">
@@ -958,19 +975,10 @@ export default function ProjectsPage() {
             </div>
           </div>
 
-          <div className="px-3 py-3 border-t border-border flex flex-col gap-0.5">
-            <SidebarButton
-              label="Sign out"
-              onClick={handleLogout}
-              icon={
-                <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                  <path d="M5 2H2.5A1.5 1.5 0 0 0 1 3.5v6A1.5 1.5 0 0 0 2.5 11H5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                  <path d="M9 4.5l3 2L9 8.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                  <line x1="12" y1="6.5" x2="5" y2="6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                </svg>
-              }
-            />
+          <div className="mt-auto px-4 py-4 border-t border-border">
+            <ThemeToggle />
           </div>
+
         </aside>
       </div>
     </div>

@@ -15,6 +15,7 @@ import { PROJECT_EMOJIS } from "@/lib/types";
 import type { UserColor } from "@/lib/types";
 import type { Conversation as DBConversation } from "@/lib/types/database";
 import type { ProjectMemberWithUser } from "@/lib/db";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -76,6 +77,14 @@ interface UnreadConversation {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+type DismissedState = { mentions: string[]; unreads: Record<string, string> };
+function getCatchupDismissed(projectId: string): DismissedState {
+  try { return JSON.parse(localStorage.getItem(`elenchus_catchup_${projectId}`) ?? "{}"); } catch { return { mentions: [], unreads: {} }; }
+}
+function setCatchupDismissed(projectId: string, data: DismissedState) {
+  localStorage.setItem(`elenchus_catchup_${projectId}`, JSON.stringify(data));
+}
 
 const EMOJI_OPTIONS = PROJECT_EMOJIS;
 
@@ -241,7 +250,7 @@ function ConversationRow({
           <button
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDelete((o) => !o); }}
             title="Delete"
-            className="w-6 h-6 rounded-md flex items-center justify-center text-muted hover:text-red-600 hover:bg-red-50 transition-colors opacity-0 group-hover/row:opacity-100"
+            className="w-6 h-6 rounded-md flex items-center justify-center text-muted hover-destructive transition-colors opacity-0 group-hover/row:opacity-100"
           >
             <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
               <path d="M2 3h8M4 3V2h4v1M5 5.5v3M7 5.5v3M3 3l.5 7h5L9 3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
@@ -252,9 +261,9 @@ function ConversationRow({
             <div
               ref={popupRef}
               onClick={(e) => e.stopPropagation()}
-              className="absolute right-0 bottom-full mb-2 w-56 bg-surface border border-red-200 rounded-xl shadow-lg p-3 z-20"
+              className="absolute right-0 bottom-full mb-2 w-56 bg-surface rounded-xl shadow-lg p-3 z-20" style={{ border: "1px solid var(--color-error-border)" }}
             >
-              <p className="text-xs font-semibold text-red-600 mb-0.5">Delete conversation?</p>
+              <p className="text-xs font-semibold mb-0.5" style={{ color: "var(--color-error)" }}>Delete conversation?</p>
               <p className="text-[11px] text-muted mb-3 leading-snug">
                 This permanently deletes all messages. It cannot be undone.
               </p>
@@ -267,7 +276,7 @@ function ConversationRow({
                 </button>
                 <button
                   onClick={handleDelete}
-                  className="flex-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg py-1.5 transition-colors"
+                  className="flex-1 text-xs font-medium rounded-lg py-1.5 transition-colors" style={{ backgroundColor: "var(--color-error)", color: "var(--color-background)" }}
                 >
                   Delete
                 </button>
@@ -663,7 +672,7 @@ function DocumentsTab({
       </div>
 
       {uploadError && (
-        <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+        <div className="text-xs rounded-lg px-3 py-2" style={{ color: "var(--color-error)", backgroundColor: "var(--color-error-bg)", border: "1px solid var(--color-error-border)" }}>
           {uploadError}
         </div>
       )}
@@ -761,7 +770,7 @@ function DocumentsTab({
                         onClick={(e) => { e.stopPropagation(); setDeleteConfirmFor(deleteConfirmFor === doc.id ? null : doc.id); setPickerOpenFor(null); }}
                         disabled={deletingDocId === doc.id}
                         title="Delete document"
-                        className="flex items-center justify-center w-7 h-7 text-muted hover:text-red-600 border border-transparent hover:border-red-200 hover:bg-red-50 rounded-md transition-colors opacity-0 group-hover/doc:opacity-100 disabled:opacity-40"
+                        className="flex items-center justify-center w-7 h-7 text-muted hover-destructive border border-transparent rounded-md transition-colors opacity-0 group-hover/doc:opacity-100 disabled:opacity-40"
                       >
                         {deletingDocId === doc.id ? (
                           <svg className="animate-spin" width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -789,7 +798,7 @@ function DocumentsTab({
                             </button>
                             <button
                               onClick={() => handleDeleteDoc(doc.id)}
-                              className="flex-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg py-1.5 transition-colors"
+                              className="flex-1 text-xs font-medium rounded-lg py-1.5 transition-colors" style={{ backgroundColor: "var(--color-error)", color: "var(--color-background)" }}
                             >
                               Delete
                             </button>
@@ -869,7 +878,7 @@ function DocumentsTab({
                               onClick={(e) => { e.stopPropagation(); setDeleteConfirmFor(deleteConfirmFor === doc.id ? null : doc.id); }}
                               disabled={deletingDocId === doc.id}
                               title="Delete document"
-                              className="flex items-center justify-center w-7 h-7 text-muted hover:text-red-600 border border-transparent hover:border-red-200 hover:bg-red-50 rounded-md transition-colors opacity-0 group-hover/doc:opacity-100 disabled:opacity-40"
+                              className="flex items-center justify-center w-7 h-7 text-muted hover-destructive border border-transparent rounded-md transition-colors opacity-0 group-hover/doc:opacity-100 disabled:opacity-40"
                             >
                               {deletingDocId === doc.id ? (
                                 <svg className="animate-spin" width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -897,7 +906,7 @@ function DocumentsTab({
                                   </button>
                                   <button
                                     onClick={() => handleDeleteDoc(doc.id)}
-                                    className="flex-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg py-1.5 transition-colors"
+                                    className="flex-1 text-xs font-medium rounded-lg py-1.5 transition-colors" style={{ backgroundColor: "var(--color-error)", color: "var(--color-background)" }}
                                   >
                                     Delete
                                   </button>
@@ -1003,10 +1012,10 @@ function MembersTab({
             </button>
           </div>
           {inviteError && (
-            <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{inviteError}</p>
+            <p className="text-xs rounded-lg px-3 py-2" style={{ color: "var(--color-error)", backgroundColor: "var(--color-error-bg)", border: "1px solid var(--color-error-border)" }}>{inviteError}</p>
           )}
           {inviteSuccess && (
-            <p className="text-xs text-green-700 bg-green-50 border border-green-100 rounded-lg px-3 py-2">{inviteSuccess}</p>
+            <p className="text-xs rounded-lg px-3 py-2" style={{ color: "var(--color-success)", backgroundColor: "color-mix(in srgb, var(--color-success) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--color-success) 20%, transparent)" }}>{inviteSuccess}</p>
           )}
           <p className="text-[11px] text-muted/60">They must already have an Elenchus account.</p>
         </div>
@@ -1020,7 +1029,7 @@ function MembersTab({
           >
             <div className="relative shrink-0">
               <Avatar name={m.name} color={m.color} size="md" />
-              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full ring-2 ring-surface" style={{ backgroundColor: m.online ? "#4ADE80" : "#D1D5DB" }} />
+              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full ring-2 ring-surface" style={{ backgroundColor: m.online ? "#4ADE80" : "var(--color-border)" }} />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
@@ -1031,8 +1040,8 @@ function MembersTab({
                 <span
                   className="text-[10px] font-medium rounded-full px-2 py-px border"
                   style={m.role === "Can edit"
-                    ? { color: "#1D4ED8", borderColor: "#BFDBFE", backgroundColor: "#EFF6FF" }
-                    : { color: "#6b6b6b", borderColor: "rgba(0,0,0,0.10)", backgroundColor: "#F7F5F0" }}
+                    ? { color: "var(--color-badge-edit)", borderColor: "var(--color-badge-edit-border)", backgroundColor: "var(--color-badge-edit-bg)" }
+                    : { color: "var(--color-badge-default)", borderColor: "var(--color-badge-default-border)", backgroundColor: "var(--color-badge-default-bg)" }}
                 >
                   {m.role}
                 </span>
@@ -1067,6 +1076,8 @@ function MembersTab({
 const ACTION_LABELS: Record<string, string> = {
   created_project:       "created this project",
   renamed_project:       "renamed this project to",
+  updated_system_prompt: "updated the AI system prompt to",
+  reset_system_prompt:   "reset the AI system prompt to default",
   created_conversation:  "started a conversation",
   renamed_conversation:  "renamed a conversation to",
   deleted_conversation:  "deleted a conversation",
@@ -1136,7 +1147,7 @@ function ActivityTab({ projectId }: { projectId: string }) {
             {item.user_name ? (
               <Avatar name={item.user_name} color={(item.user_color as UserColor) ?? "blue"} size="xs" className="shrink-0 mt-0.5 z-10" />
             ) : (
-              <span className="w-6 h-6 rounded-full shrink-0 mt-0.5 z-10 flex items-center justify-center text-[8px] font-semibold" style={{ backgroundColor: "#E8E5E0", color: "#6b6b6b" }}>Cl</span>
+              <span className="w-6 h-6 rounded-full shrink-0 mt-0.5 z-10 flex items-center justify-center text-[8px] font-semibold bg-border text-muted">Cl</span>
             )}
             <div className="flex-1 min-w-0 pt-0.5">
               <p className="text-sm text-foreground leading-snug">
@@ -1165,7 +1176,7 @@ function highlightMention(text: string, displayName: string) {
   const pattern = new RegExp(`(@${displayName.split(" ")[0]})`, "gi");
   const parts = text.split(pattern);
   return parts.map((part, i) =>
-    pattern.test(part) ? <span key={i} className="font-semibold text-blue-600">{part}</span> : part
+    pattern.test(part) ? <span key={i} className="font-semibold" style={{ color: "var(--color-user-blue)" }}>{part}</span> : part
   );
 }
 
@@ -1225,7 +1236,7 @@ function CatchUpTab({
         <div>
           <div className="flex items-center gap-2 mb-3">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-muted/60">Mentions</p>
-            <span className="text-[10px] font-semibold bg-blue-500 text-white rounded-full px-1.5 py-px leading-none">
+            <span className="text-[10px] font-semibold rounded-full px-1.5 py-px leading-none" style={{ backgroundColor: "var(--color-foreground)", color: "var(--color-background)" }}>
               {mentions.length}
             </span>
           </div>
@@ -1281,7 +1292,7 @@ function CatchUpTab({
                   <p className="text-[11px] text-muted mt-0.5">{formatRelative(c.latest_at)}</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-[11px] font-semibold text-white bg-foreground rounded-full px-2 py-px leading-none">
+                  <span className="text-[11px] font-semibold bg-foreground rounded-full px-2 py-px leading-none" style={{ color: "var(--color-background)" }}>
                     {c.new_count} new
                   </span>
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-border group-hover:text-muted transition-colors">
@@ -1297,9 +1308,211 @@ function CatchUpTab({
   );
 }
 
+// ── SettingsTab ───────────────────────────────────────────────────────────────
+
+const DEFAULT_SYSTEM_PROMPT_DISPLAY =
+  "You are an AI collaborating with a team in a shared, multiplayer workspace.\n\n" +
+  "Messages are labeled with each person's name, so you can see who said what. Other AI assistants " +
+  "(Claude, Gemini, ChatGPT) may also appear in the thread — their responses are labeled too. " +
+  "You can build on, reference, or compare what any participant — human or AI — has said.\n\n" +
+  "When it helps the team:\n" +
+  "- @mention specific people to ask for input or call out their contribution\n" +
+  "- Poll the group to surface opinions or check consensus\n" +
+  "- Read the room — if the team seems split or uncertain, name it\n" +
+  "- Research a question and bring findings back for the group to discuss\n\n" +
+  "Be concise and address the team, not just the person who tagged you.";
+
+function SettingsTab({
+  projectId,
+  projectName,
+  systemPrompt,
+  onSaved,
+  canEdit,
+  isOwner,
+  onDeleted,
+}: {
+  projectId: string;
+  projectName: string;
+  systemPrompt: string | null;
+  onSaved: (value: string | null) => void;
+  canEdit: boolean;
+  isOwner: boolean;
+  onDeleted: () => void;
+}) {
+  const [draft, setDraft] = useState(systemPrompt ?? DEFAULT_SYSTEM_PROMPT_DISPLAY);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const isDefault = systemPrompt === null;
+  const MAX = 4000;
+
+  const [confirmText, setConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function save() {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    const token = await getToken();
+    if (!token) { setSaving(false); return; }
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ system_prompt: draft.trim() || null }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        onSaved(draft.trim() || null);
+        setSavedAt(new Date().toLocaleTimeString());
+      } else {
+        setError(json.error ?? "Failed to save");
+      }
+    } catch {
+      setError("Network error — try again");
+    }
+    setSaving(false);
+  }
+
+  async function deleteProject() {
+    if (deleting || confirmText !== projectName) return;
+    setDeleting(true);
+    setDeleteError(null);
+    const token = await getToken();
+    if (!token) { setDeleting(false); return; }
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (json.success) {
+        onDeleted();
+      } else {
+        setDeleteError(json.error ?? "Failed to delete project");
+        setDeleting(false);
+      }
+    } catch {
+      setDeleteError("Network error — try again");
+      setDeleting(false);
+    }
+  }
+
+  async function reset() {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    const token = await getToken();
+    if (!token) { setSaving(false); return; }
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ system_prompt: null }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setDraft(DEFAULT_SYSTEM_PROMPT_DISPLAY);
+        onSaved(null);
+        setSavedAt(new Date().toLocaleTimeString());
+      } else {
+        setError(json.error ?? "Failed to reset");
+      }
+    } catch {
+      setError("Network error — try again");
+    }
+    setSaving(false);
+  }
+
+  const isDirty = draft.trim() !== (systemPrompt ?? DEFAULT_SYSTEM_PROMPT_DISPLAY).trim();
+
+  return (
+    <div className="p-6 max-w-2xl">
+      <h2 className="text-sm font-semibold text-foreground mb-1">AI system prompt</h2>
+      <p className="text-xs text-muted mb-4">
+        Sent to the AI before every conversation in this project.{" "}
+        {isDefault ? "Using the default prompt." : "Custom prompt active."}
+      </p>
+
+      <textarea
+        value={draft}
+        onChange={(e) => { setDraft(e.target.value); setSavedAt(null); }}
+        disabled={!canEdit}
+        rows={14}
+        maxLength={MAX}
+        className="w-full rounded-lg border border-border bg-background text-foreground text-sm leading-relaxed px-3.5 py-3 resize-none focus:outline-none focus:border-foreground/30 disabled:opacity-50 disabled:cursor-default font-mono"
+        placeholder="Enter a system prompt…"
+      />
+
+      <div className="flex items-center justify-between mt-2">
+        <span className="text-[11px] text-muted">{draft.length} / {MAX}</span>
+
+        {canEdit && (
+          <div className="flex items-center gap-2">
+            {savedAt && !isDirty && (
+              <span className="text-[11px] text-muted">Saved at {savedAt}</span>
+            )}
+            {error && (
+              <span className="text-[11px] text-red-500">{error}</span>
+            )}
+            {!isDefault && (
+              <button
+                onClick={reset}
+                disabled={saving}
+                className="text-[12px] text-muted hover:text-foreground transition-colors disabled:opacity-50 px-3 py-1.5"
+              >
+                Reset to default
+              </button>
+            )}
+            <button
+              onClick={save}
+              disabled={saving || !isDirty}
+              className="text-[12px] font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40"
+              style={{ backgroundColor: "var(--color-foreground)", color: "var(--color-background)" }}
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {isOwner && (
+        <div className="mt-10 pt-6 border-t border-red-500/20">
+          <h2 className="text-sm font-semibold text-red-500 mb-1">Danger zone</h2>
+          <p className="text-xs text-muted mb-4">
+            Permanently delete this project and all its conversations, messages, and documents.
+            This cannot be undone.
+          </p>
+          <p className="text-xs text-muted mb-2">
+            Type <span className="font-mono font-semibold text-foreground">{projectName}</span> to confirm.
+          </p>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={confirmText}
+              onChange={(e) => { setConfirmText(e.target.value); setDeleteError(null); }}
+              placeholder={projectName}
+              className="flex-1 rounded-lg border border-border bg-background text-foreground text-sm px-3 py-2 focus:outline-none focus:border-red-500/50"
+            />
+            <button
+              onClick={deleteProject}
+              disabled={deleting || confirmText !== projectName}
+              className="text-[12px] font-medium px-3 py-2 rounded-lg border border-red-500/40 text-red-500 hover:bg-red-500/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+            >
+              {deleting ? "Deleting…" : "Delete project"}
+            </button>
+          </div>
+          {deleteError && <p className="text-[11px] text-red-500 mt-2">{deleteError}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type Tab = "catchup" | "conversations" | "documents" | "members" | "activity";
+type Tab = "catchup" | "conversations" | "documents" | "members" | "activity" | "settings";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "conversations", label: "Conversations" },
@@ -1307,6 +1520,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "members",       label: "Members"       },
   { id: "activity",      label: "Activity"      },
   { id: "catchup",       label: "Catch up"      },
+  { id: "settings",      label: "Settings"      },
 ];
 
 function mapMember(m: ProjectMemberWithUser): Member {
@@ -1357,6 +1571,7 @@ export default function ProjectPage() {
   const [realMembers, setRealMembers] = useState<Member[]>([]);
   const [realConversations, setRealConversations] = useState<Conversation[]>([]);
   const [realEmoji, setRealEmoji] = useState("📁");
+  const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
 
   // Header inline name edit
   const [headerEditing, setHeaderEditing] = useState(false);
@@ -1382,6 +1597,7 @@ export default function ProjectPage() {
         setDraftDesc(projRes.data.description ?? "");
         setRealEmoji(projRes.data.emoji ?? "📁");
         setIsOwner(projRes.data.created_by === user?.id);
+        setSystemPrompt(projRes.data.system_prompt ?? null);
       }
       if (membersRes.data) setRealMembers(membersRes.data.map((m) => ({
         ...mapMember(m),
@@ -1474,10 +1690,16 @@ export default function ProjectPage() {
         .then((r) => r.json())
         .then((json) => {
           if (json.success) {
-            setCatchupMentions(json.mentions ?? []);
-            setCatchupUnread(json.unread ?? []);
+            const dismissed = getCatchupDismissed(projectId);
+            const filteredMentions = (json.mentions ?? []).filter((m: Mention) => !dismissed.mentions?.includes(m.id));
+            const filteredUnreads = (json.unread ?? []).filter((c: UnreadConversation) => {
+              const dismissedAt = dismissed.unreads?.[c.id];
+              return !dismissedAt || c.latest_at > dismissedAt;
+            });
+            setCatchupMentions(filteredMentions);
+            setCatchupUnread(filteredUnreads);
             setCatchupLastSeen(json.lastSeenAt ?? null);
-            setCatchupBadge((json.mentions?.length ?? 0) + (json.unread?.length ?? 0));
+            setCatchupBadge(filteredMentions.length + filteredUnreads.length);
           }
           setCatchupLoading(false);
         })
@@ -1531,6 +1753,7 @@ export default function ProjectPage() {
         headers: { Authorization: `Bearer ${token}` },
       }).catch(() => {});
     }
+    localStorage.removeItem(`elenchus_catchup_${projectId}`);
     setCatchupMentions([]);
     setCatchupUnread([]);
     setCatchupBadge(0);
@@ -1738,7 +1961,7 @@ export default function ProjectPage() {
                   <div key={m.id} className="flex items-center gap-2.5">
                     <div className="relative shrink-0">
                       <Avatar name={m.name} color={m.color} size="sm" />
-                      <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full ring-2 ring-surface" style={{ backgroundColor: m.online ? "#4ADE80" : "#D1D5DB" }} />
+                      <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full ring-2 ring-surface" style={{ backgroundColor: m.online ? "#4ADE80" : "var(--color-border)" }} />
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-medium text-foreground truncate">
@@ -1749,6 +1972,10 @@ export default function ProjectPage() {
                   </div>
                 ))}
               </div>
+            </div>
+
+            <div className="mt-auto px-4 py-4 border-t border-border">
+              <ThemeToggle />
             </div>
 
           </aside>
@@ -1770,7 +1997,7 @@ export default function ProjectPage() {
                 >
                   {tab.label}
                   {tab.id === "catchup" && catchupBadge > 0 && (
-                    <span className="text-[10px] font-semibold bg-blue-500 text-white rounded-full px-1.5 py-px leading-none">
+                    <span className="text-[10px] font-semibold rounded-full px-1.5 py-px leading-none" style={{ backgroundColor: "var(--color-foreground)", color: "var(--color-background)" }}>
                       {catchupBadge}
                     </span>
                   )}
@@ -1814,6 +2041,17 @@ export default function ProjectPage() {
                   />
                 )}
                 {activeTab === "activity" && <ActivityTab projectId={projectId} />}
+                {activeTab === "settings" && (
+                  <SettingsTab
+                    projectId={projectId}
+                    projectName={projectName}
+                    systemPrompt={systemPrompt}
+                    onSaved={setSystemPrompt}
+                    canEdit={realMembers.find((m) => m.id === currentUserId)?.role === "Can edit"}
+                    isOwner={isOwner}
+                    onDeleted={() => router.push("/projects")}
+                  />
+                )}
                 {activeTab === "catchup" && (
                   <CatchUpTab
                     currentUser={currentUser}
@@ -1823,10 +2061,14 @@ export default function ProjectPage() {
                     loading={catchupLoading}
                     clearing={catchupClearing}
                     onDismissMention={(id) => {
+                      const d = getCatchupDismissed(projectId);
+                      setCatchupDismissed(projectId, { ...d, mentions: [...(d.mentions ?? []), id] });
                       setCatchupMentions((prev) => prev.filter((m) => m.id !== id));
                       setCatchupBadge((prev) => Math.max(0, prev - 1));
                     }}
                     onDismissUnread={(id) => {
+                      const d = getCatchupDismissed(projectId);
+                      setCatchupDismissed(projectId, { ...d, unreads: { ...(d.unreads ?? {}), [id]: new Date().toISOString() } });
                       setCatchupUnread((prev) => prev.filter((c) => c.id !== id));
                       setCatchupBadge((prev) => Math.max(0, prev - 1));
                     }}
