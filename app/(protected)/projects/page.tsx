@@ -921,7 +921,9 @@ export default function ProjectsPage() {
 
           <div className="flex-1 px-4 py-5 flex flex-col gap-4 overflow-y-auto">
             <div className="flex items-center gap-3">
-              <Avatar name={displayName} color={displayColor} size="md" showOnline />
+              <Link href="/settings" title="Settings">
+                <Avatar name={displayName} color={displayColor} size="md" showOnline />
+              </Link>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-foreground truncate">{displayName}</p>
                 <p className="text-xs text-muted truncate">{displayEmail}</p>

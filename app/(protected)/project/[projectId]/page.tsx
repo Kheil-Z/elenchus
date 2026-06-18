@@ -1899,9 +1899,9 @@ export default function ProjectPage() {
           </button>
 
           {currentUser && (
-            <div className="shrink-0">
+            <Link href="/settings" className="shrink-0" title="Settings">
               <Avatar name={currentUser} color={(profile?.color as UserColor) ?? "blue"} size="sm" />
-            </div>
+            </Link>
           )}
         </header>
 

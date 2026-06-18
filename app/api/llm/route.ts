@@ -305,23 +305,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── 8. Call the LLM ───────────────────────────────────────────────────────
-  let llmResult: Awaited<ReturnType<typeof callLLM>>;
-  try {
-    llmResult = await callLLM({
-      provider: profile.llm_provider,
-      apiKey: userApiKey,
-      model,
-      systemPrompt,
-      messages: formattedMessages,
-    });
-  } catch (e) {
-    if (e instanceof LLMError) return err(e.message, e.status);
-    console.error("LLM call failed:", e);
-    return err("AI request failed — try again", 500);
-  }
-
-  // ── 9. Save user message ──────────────────────────────────────────────────
+  // ── 8. Save user message (before LLM call so it appears instantly via realtime) ──
   const { error: userMsgError } = await supabaseAdmin
     .from("messages")
     .insert({
@@ -338,6 +322,22 @@ export async function POST(req: NextRequest) {
     } as never);
 
   if (userMsgError) console.error("Failed to save user message:", userMsgError);
+
+  // ── 9. Call the LLM ───────────────────────────────────────────────────────
+  let llmResult: Awaited<ReturnType<typeof callLLM>>;
+  try {
+    llmResult = await callLLM({
+      provider: profile.llm_provider,
+      apiKey: userApiKey,
+      model,
+      systemPrompt,
+      messages: formattedMessages,
+    });
+  } catch (e) {
+    if (e instanceof LLMError) return err(e.message, e.status);
+    console.error("LLM call failed:", e);
+    return err("AI request failed — try again", 500);
+  }
 
   // ── 10. Save assistant response ───────────────────────────────────────────
   const payerUserId = determinePayer(conversation, user.id);

@@ -9,6 +9,7 @@ export type ContentSegment =
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
+  authorUserId?: string | null;
   authorName: string;
   authorColor?: UserColor;
   timestamp: string;

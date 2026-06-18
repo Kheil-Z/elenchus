@@ -51,10 +51,42 @@ export default function SignUpPage() {
   if (checkEmail) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background px-4">
-        <div className="bg-surface border border-border rounded-2xl p-8 w-full max-w-sm text-center">
-          <p className="text-2xl mb-2">✉️</p>
-          <p className="font-medium text-foreground mb-1">Check your email</p>
-          <p className="text-sm text-muted">We sent a confirmation link to <span className="font-medium text-foreground">{email}</span>. Click it to activate your account.</p>
+        <div className="w-full max-w-sm">
+          <div className="text-center mb-8">
+            <Link href="/" className="font-serif text-6xl text-foreground tracking-tight hover:opacity-80 transition-opacity">
+              Elenchus
+            </Link>
+          </div>
+
+          <div className="bg-surface border border-border rounded-2xl p-8 flex flex-col items-center text-center gap-4">
+            <span className="text-4xl">✉️</span>
+            <div>
+              <p className="font-medium text-foreground text-lg">Check your email</p>
+              <p className="text-sm text-muted mt-1">
+                We sent a confirmation link to{" "}
+                <span className="font-medium text-foreground">{email}</span>.
+                <br />Click it to activate your account.
+              </p>
+            </div>
+
+            <Link
+              href="/auth/login"
+              className="mt-2 w-full py-2.5 rounded-xl text-sm font-medium text-center transition-opacity"
+              style={{ backgroundColor: "var(--color-foreground)", color: "var(--color-background)" }}
+            >
+              Go to sign in
+            </Link>
+          </div>
+
+          <p className="text-center text-sm text-muted mt-5">
+            Wrong email?{" "}
+            <button
+              onClick={() => setCheckEmail(false)}
+              className="text-foreground font-medium hover:underline"
+            >
+              Go back
+            </button>
+          </p>
         </div>
       </div>
     );

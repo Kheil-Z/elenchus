@@ -42,12 +42,14 @@ function parseSegments(content: string): ContentSegment[] {
   return segments.length > 0 ? segments : [{ type: "text", text: content }];
 }
 
-function dbMsgToChat(msg: Message, colorMap: Map<string, UserColor>): ChatMessage {
+function dbMsgToChat(msg: Message, memberMap: Map<string, { name: string; color: UserColor }>): ChatMessage {
+  const member = msg.author_user_id ? memberMap.get(msg.author_user_id) : undefined;
   return {
     id: msg.id,
     role: msg.role,
-    authorName: msg.author_display_name ?? (msg.role === "assistant" ? "AI" : ""),
-    authorColor: msg.author_user_id ? (colorMap.get(msg.author_user_id) ?? "blue") : undefined,
+    authorUserId: msg.author_user_id ?? null,
+    authorName: member?.name ?? msg.author_display_name ?? (msg.role === "assistant" ? "AI" : ""),
+    authorColor: member?.color ?? (msg.author_user_id ? "blue" : undefined),
     timestamp: formatTime(msg.created_at),
     segments: parseSegments(msg.content),
     modelUsed: msg.model_used ?? undefined,
@@ -79,7 +81,7 @@ export default function ChatPage() {
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [docMode, setDocMode] = useState<DocMode>("always");
-  const colorMapRef = useRef<Map<string, UserColor>>(new Map());
+  const colorMapRef = useRef<Map<string, { name: string; color: UserColor }>>(new Map());
   const onlineIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -154,10 +156,10 @@ export default function ChatPage() {
       if (projResult.data) setProject(projResult.data);
 
       if (membersResult.data) {
-        const colorMap = new Map<string, UserColor>();
+        const colorMap = new Map<string, { name: string; color: UserColor }>();
         membersResult.data.forEach((m) => {
           const u = m.user as typeof m.user | null;
-          if (u) colorMap.set(m.user_id, (u.color as UserColor) ?? "blue");
+          if (u) colorMap.set(m.user_id, { name: u.display_name ?? m.user_id, color: (u.color as UserColor) ?? "blue" });
         });
         colorMapRef.current = colorMap;
         setChatMembers(membersResult.data.map((m) => {
@@ -187,7 +189,19 @@ export default function ChatPage() {
     if (!user) return;
     const channel = subscribeToMessages(conversationId, (newMsg) => {
       const mapped = dbMsgToChat(newMsg, colorMapRef.current);
-      setMessages((prev) => prev.some((m) => m.id === newMsg.id) ? prev : [...prev, mapped]);
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === newMsg.id)) return prev;
+        // Swap out our own optimistic placeholder when the real DB row arrives
+        if (newMsg.role === "user" && newMsg.author_user_id === user.id) {
+          const pendingIdx = prev.findIndex((m) => m.id.startsWith("pending-"));
+          if (pendingIdx !== -1) {
+            const next = [...prev];
+            next[pendingIdx] = mapped;
+            return next;
+          }
+        }
+        return [...prev, mapped];
+      });
       if (newMsg.role === "assistant") setAwaitingClaude(false);
     });
     return () => { supabase.removeChannel(channel); };
@@ -275,7 +289,23 @@ export default function ChatPage() {
     if (fullContent) {
       const lower = fullContent.toLowerCase();
       const isClaudeCall = lower.includes("@claude") || lower.includes("@gemini") || lower.includes("@openai") || lower.includes("@chatgpt");
-      if (isClaudeCall) setAwaitingClaude(true);
+      if (isClaudeCall) {
+        setAwaitingClaude(true);
+        // Show the user's message immediately; realtime will swap in the real DB row
+        setMessages((prev) => [...prev, {
+          id: `pending-${Date.now()}`,
+          role: "user" as const,
+          authorUserId: user.id,
+          authorName: profile.display_name,
+          authorColor: currentUserColor,
+          timestamp: formatTime(new Date().toISOString()),
+          segments: parseSegments(fullContent),
+          modelUsed: undefined,
+          inputTokens: undefined,
+          outputTokens: undefined,
+          payerUserId: null,
+        }]);
+      }
 
       const url = isClaudeCall ? "/api/llm" : "/api/messages/send";
       const body = isClaudeCall
@@ -446,6 +476,7 @@ export default function ChatPage() {
       <MessageList
         messages={messages}
         currentUserName={currentUserName}
+        currentUserId={user?.id}
         loading={loading}
         sending={awaitingClaude}
         mentionsOnly={mentionsOnly}

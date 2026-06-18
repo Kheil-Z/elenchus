@@ -260,11 +260,6 @@ function MessageBubble({ msg, isYou, dark, onDocPreview }: { msg: ChatMessage; i
               </span>
             )}
             <span className="text-[11px] text-muted">{msg.timestamp}</span>
-            {msg.inputTokens && msg.outputTokens && (
-              <span className="text-[10px] text-muted/60 mr-auto">
-                {msg.inputTokens.toLocaleString()} in · {msg.outputTokens} out
-              </span>
-            )}
           </div>
           <div
             className="rounded-2xl rounded-tr-sm px-4 py-3 text-sm text-foreground"
@@ -314,6 +309,7 @@ function MessageBubble({ msg, isYou, dark, onDocPreview }: { msg: ChatMessage; i
 interface MessageListProps {
   messages: ChatMessage[];
   currentUserName?: string;
+  currentUserId?: string;
   loading?: boolean;
   sending?: boolean;
   mentionsOnly?: boolean;
@@ -321,14 +317,19 @@ interface MessageListProps {
 }
 
 function messageContainsMention(msg: ChatMessage, name: string): boolean {
-  const lower = name.toLowerCase();
+  const firstName = (name.split(" ")[0] ?? name).toLowerCase();
   return msg.segments.some(
-    (seg) => seg.type === "text" && seg.text.toLowerCase().includes(`@${lower}`)
+    (seg) =>
+      seg.type === "text" &&
+      (seg.text.toLowerCase().includes(`@${firstName}`) ||
+       seg.text.toLowerCase().includes("@all"))
   );
 }
 
-export function MessageList({ messages, currentUserName, loading, sending, mentionsOnly, aiName = "AI" }: MessageListProps) {
+export function MessageList({ messages, currentUserName, currentUserId, loading, sending, mentionsOnly, aiName = "AI" }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const initialScrollRef = useRef(false);
   const [docPreview, setDocPreview] = useState<DocPreviewArg | null>(null);
   const dark = useDarkMode();
 
@@ -338,7 +339,13 @@ export function MessageList({ messages, currentUserName, loading, sending, menti
       : messages;
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const isInitial = !initialScrollRef.current;
+    if (isInitial) initialScrollRef.current = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      el.scrollTo({ top: el.scrollHeight, behavior: isInitial ? "auto" : "smooth" });
+    }));
   }, [messages.length, sending]);
 
   if (loading) {
@@ -362,13 +369,13 @@ export function MessageList({ messages, currentUserName, loading, sending, menti
         onClose={() => setDocPreview(null)}
       />
     )}
-    <div className="flex-1 overflow-y-auto">
+    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
       <div className="flex flex-col gap-6 px-6 py-6 max-w-3xl mx-auto">
         {mentionsOnly && visibleMessages.length === 0 && !sending && (
           <p className="text-sm text-muted text-center py-8">No messages mentioning you yet.</p>
         )}
         {visibleMessages.map((msg) => (
-          <MessageBubble key={msg.id} msg={msg} isYou={msg.authorName === currentUserName} dark={dark} onDocPreview={setDocPreview} />
+          <MessageBubble key={msg.id} msg={msg} isYou={!!(currentUserId && msg.authorUserId === currentUserId)} dark={dark} onDocPreview={setDocPreview} />
         ))}
         {sending && (
           <div className="flex flex-row-reverse gap-3">

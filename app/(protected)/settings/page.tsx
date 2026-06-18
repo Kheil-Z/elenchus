@@ -76,6 +76,15 @@ export default function SettingsPage() {
   const [colorSaving, setColorSaving] = useState(false);
   const [colorFeedback, setColorFeedback] = useState<string | null>(null);
 
+  const [displayName, setDisplayName]         = useState("");
+  const [nameSaving, setNameSaving]           = useState(false);
+  const [nameFeedback, setNameFeedback]       = useState<string | null>(null);
+
+  const [newPassword, setNewPassword]         = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [pwSaving, setPwSaving]               = useState(false);
+  const [pwFeedback, setPwFeedback]           = useState<{ type: "success" | "error"; message: string } | null>(null);
+
   const [deleteModalOpen, setDeleteModalOpen]     = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deleting, setDeleting]                   = useState(false);
@@ -84,6 +93,49 @@ export default function SettingsPage() {
   useEffect(() => {
     if (profile?.color) setSelectedColor(profile.color as UserColor);
   }, [profile?.color]);
+
+  useEffect(() => {
+    if (profile?.display_name) setDisplayName(profile.display_name);
+  }, [profile?.display_name]);
+
+  async function handleNameSave() {
+    if (!user || nameSaving || !displayName.trim()) return;
+    setNameSaving(true);
+    setNameFeedback(null);
+    const { error } = await updateUserProfile(user.id, { display_name: displayName.trim() });
+    setNameSaving(false);
+    if (error) {
+      setNameFeedback("Failed to save — try again");
+    } else {
+      await refreshProfile();
+      setNameFeedback("Saved!");
+      setTimeout(() => setNameFeedback(null), 2000);
+    }
+  }
+
+  async function handlePasswordChange() {
+    if (pwSaving) return;
+    if (newPassword.length < 8) {
+      setPwFeedback({ type: "error", message: "Password must be at least 8 characters." });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPwFeedback({ type: "error", message: "Passwords don't match." });
+      return;
+    }
+    setPwSaving(true);
+    setPwFeedback(null);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setPwSaving(false);
+    if (error) {
+      setPwFeedback({ type: "error", message: error.message });
+    } else {
+      setNewPassword("");
+      setConfirmPassword("");
+      setPwFeedback({ type: "success", message: "Password updated." });
+      setTimeout(() => setPwFeedback(null), 3000);
+    }
+  }
 
   useEffect(() => {
     getApiKeyStatus().then(({ status: s, provider }) => {
@@ -186,15 +238,40 @@ export default function SettingsPage() {
             <div className="px-6 py-5 flex flex-col gap-4">
               <div className="flex items-center gap-4">
                 <Avatar
-                  name={profile?.display_name ?? user?.email ?? ""}
+                  name={displayName || profile?.display_name || user?.email || ""}
                   color={selectedColor}
                   size="lg"
                 />
                 <div>
                   <p className="text-sm font-medium text-foreground">
-                    {profile?.display_name ?? user?.email ?? ""}
+                    {displayName || profile?.display_name || user?.email || ""}
                   </p>
                   <p className="text-xs text-muted mt-0.5">{user?.email}</p>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-foreground">Display name</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="text"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleNameSave(); }}
+                    className="flex-1 px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-foreground/30 transition-colors"
+                    placeholder="Your name"
+                    maxLength={50}
+                  />
+                  <button
+                    onClick={handleNameSave}
+                    disabled={nameSaving || !displayName.trim() || displayName.trim() === profile?.display_name}
+                    className="text-sm font-medium bg-foreground text-surface px-4 py-2 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                  >
+                    {nameSaving ? "Saving…" : "Save"}
+                  </button>
+                  {nameFeedback && (
+                    <p className="text-sm" style={{ color: "var(--color-success)" }}>{nameFeedback}</p>
+                  )}
                 </div>
               </div>
 
@@ -405,6 +482,53 @@ export default function SettingsPage() {
               })()}
             </div>
           </section>
+          {/* Password section */}
+          <section className="bg-surface border border-border rounded-xl divide-y divide-border mb-6">
+            <div className="px-6 py-5">
+              <h2 className="font-medium text-foreground text-base">Password</h2>
+              <p className="text-sm text-muted mt-0.5">Set a new password for your account.</p>
+            </div>
+            <div className="px-6 py-5 flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-foreground">New password</label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-foreground/30 transition-colors"
+                  placeholder="Min. 8 characters"
+                  autoComplete="new-password"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-foreground">Confirm password</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handlePasswordChange(); }}
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-foreground/30 transition-colors"
+                  placeholder="Repeat password"
+                  autoComplete="new-password"
+                />
+              </div>
+              {pwFeedback && (
+                <p className="text-sm" style={{ color: pwFeedback.type === "success" ? "var(--color-success)" : "var(--color-error)" }}>
+                  {pwFeedback.message}
+                </p>
+              )}
+              <div>
+                <button
+                  onClick={handlePasswordChange}
+                  disabled={pwSaving || !newPassword || !confirmPassword}
+                  className="text-sm font-medium bg-foreground text-surface px-4 py-2 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {pwSaving ? "Updating…" : "Update password"}
+                </button>
+              </div>
+            </div>
+          </section>
+
           {/* Danger zone */}
           <section className="mt-6 bg-surface rounded-xl px-6 py-5" style={{ border: "2px solid var(--color-error-border)" }}>
             <p className="mb-4">
