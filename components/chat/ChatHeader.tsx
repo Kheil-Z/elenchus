@@ -125,9 +125,9 @@ export function ChatHeader({
       )}
 
       {displayName && (
-        <div className="shrink-0">
+        <Link href="/settings" className="shrink-0" title="Settings">
           <Avatar name={displayName} color={displayColor} size="sm" />
-        </div>
+        </Link>
       )}
     </header>
   );

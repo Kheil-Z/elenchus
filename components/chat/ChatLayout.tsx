@@ -13,9 +13,16 @@ interface ChatLayoutProps {
   onRenameTitle?: (newName: string) => Promise<void>;
 }
 
+function lsGet(key: string, fallback: boolean): boolean {
+  try { const v = localStorage.getItem(key); return v === null ? fallback : v !== "false"; } catch { return fallback; }
+}
+function lsSet(key: string, value: boolean) {
+  try { localStorage.setItem(key, String(value)); } catch { /* */ }
+}
+
 export function ChatLayout({ title, projectName, projectId, children, sidebar, onRenameTitle }: ChatLayoutProps) {
-  const [navOpen, setNavOpen] = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [navOpen, setNavOpen] = useState(() => lsGet("elenchus:nav-open", true));
+  const [sidebarOpen, setSidebarOpen] = useState(() => lsGet("elenchus:sidebar-open", true));
 
   return (
     <div className="h-screen flex bg-background overflow-hidden">
@@ -29,9 +36,9 @@ export function ChatLayout({ title, projectName, projectId, children, sidebar, o
           projectName={projectName}
           projectId={projectId}
           navOpen={navOpen}
-          onToggleNav={() => setNavOpen((o) => !o)}
+          onToggleNav={() => setNavOpen((o) => { const next = !o; lsSet("elenchus:nav-open", next); return next; })}
           sidebarOpen={sidebarOpen}
-          onToggleSidebar={() => setSidebarOpen((o) => !o)}
+          onToggleSidebar={() => setSidebarOpen((o) => { const next = !o; lsSet("elenchus:sidebar-open", next); return next; })}
           onRenameTitle={onRenameTitle}
         />
         <div className="flex flex-1 overflow-hidden">

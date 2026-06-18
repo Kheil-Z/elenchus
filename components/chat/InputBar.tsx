@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import { Avatar } from "@/components/Avatar";
 import type { UserColor } from "@/lib/types";
 
@@ -33,20 +33,74 @@ interface InputBarProps {
   aiName?: string;
 }
 
+type MentionOption =
+  | { key: string; type: "ai";   label: string; mention: string }
+  | { key: string; type: "user"; label: string; mention: string; color: UserColor }
+  | { key: string; type: "all";  label: string; mention: string };
+
 export function InputBar({ currentUser, members = [], apiKeyStatus, onSend, sending, aiMention = "@claude", aiName = "Claude" }: InputBarProps) {
-  const [value, setValue] = useState("");
+  const [value, setValue]               = useState("");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [delegateOpen, setDelegateOpen] = useState(false);
   const [selectedDelegate, setSelectedDelegate] = useState<Member | null>(null);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIdx, setMentionIdx]     = useState(0);
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const textareaRef    = useRef<HTMLTextAreaElement>(null);
+  const fileRef        = useRef<HTMLInputElement>(null);
+  const mentionStart   = useRef(0);
+
+  const firstName = (name: string) => name.split(" ")[0];
+  const others    = members.filter((m) => m.name !== currentUser.name);
+
+  // All possible @ options
+  const allOptions = useMemo<MentionOption[]>(() => [
+    { key: "ai",  type: "ai",  label: aiName,  mention: aiMention },
+    ...others.map((m) => ({
+      key:     m.name,
+      type:    "user" as const,
+      label:   firstName(m.name) ?? m.name,
+      mention: `@${firstName(m.name) ?? m.name}`,
+      color:   m.color,
+    })),
+    { key: "all", type: "all", label: "all", mention: "@all" },
+  ], [aiName, aiMention, others]);
+
+  const filteredOptions = useMemo(() =>
+    mentionQuery === null
+      ? []
+      : allOptions.filter((o) =>
+          mentionQuery === "" || o.label.toLowerCase().startsWith(mentionQuery.toLowerCase())
+        ),
+    [mentionQuery, allOptions]
+  );
+
+  // ── Mention insertion ──────────────────────────────────────────────────────
+
+  function insertMention(mention: string) {
+    const el = textareaRef.current;
+    if (!el || mentionQuery === null) return;
+    const before   = value.slice(0, mentionStart.current);
+    const after    = value.slice(mentionStart.current + 1 + mentionQuery.length);
+    const newValue = `${before}${mention} ${after}`;
+    setValue(newValue);
+    setMentionQuery(null);
+    requestAnimationFrame(() => {
+      const pos = mentionStart.current + mention.length + 1;
+      el.setSelectionRange(pos, pos);
+      el.focus();
+      el.style.height = "auto";
+      el.style.height = Math.min(el.scrollHeight, 180) + "px";
+    });
+  }
+
+  // ── Formatting ────────────────────────────────────────────────────────────
 
   function applyFormat(type: "bold" | "italic" | "list") {
     const el = textareaRef.current;
     if (!el) return;
-    const start = el.selectionStart;
-    const end   = el.selectionEnd;
+    const start  = el.selectionStart;
+    const end    = el.selectionEnd;
     const before   = value.slice(0, start);
     const selected = value.slice(start, end);
     const after    = value.slice(end);
@@ -54,62 +108,86 @@ export function InputBar({ currentUser, members = [], apiKeyStatus, onSend, send
     if (type === "bold") {
       const inner = selected || "bold text";
       setValue(`${before}**${inner}**${after}`);
-      requestAnimationFrame(() => {
-        el.selectionStart = start + 2;
-        el.selectionEnd   = start + 2 + inner.length;
-        el.focus();
-      });
+      requestAnimationFrame(() => { el.selectionStart = start + 2; el.selectionEnd = start + 2 + inner.length; el.focus(); });
     } else if (type === "italic") {
       const inner = selected || "italic text";
       setValue(`${before}*${inner}*${after}`);
-      requestAnimationFrame(() => {
-        el.selectionStart = start + 1;
-        el.selectionEnd   = start + 1 + inner.length;
-        el.focus();
-      });
+      requestAnimationFrame(() => { el.selectionStart = start + 1; el.selectionEnd = start + 1 + inner.length; el.focus(); });
     } else if (type === "list") {
       const lineStart = before.lastIndexOf("\n") + 1;
       if (value.slice(lineStart).startsWith("- ")) {
         setValue(value.slice(0, lineStart) + value.slice(lineStart + 2));
-        requestAnimationFrame(() => {
-          el.selectionStart = Math.max(lineStart, start - 2);
-          el.selectionEnd   = Math.max(lineStart, end - 2);
-          el.focus();
-        });
+        requestAnimationFrame(() => { el.selectionStart = Math.max(lineStart, start - 2); el.selectionEnd = Math.max(lineStart, end - 2); el.focus(); });
       } else {
         setValue(value.slice(0, lineStart) + "- " + value.slice(lineStart));
-        requestAnimationFrame(() => {
-          el.selectionStart = start + 2;
-          el.selectionEnd   = end   + 2;
-          el.focus();
-        });
+        requestAnimationFrame(() => { el.selectionStart = start + 2; el.selectionEnd = end + 2; el.focus(); });
       }
     }
   }
 
-  const hasClaudeMention = value.includes(aiMention);
-  const canSend = value.trim().length > 0 || attachedFiles.length > 0;
-  const others = members.filter((m) => m.name !== currentUser.name);
+  // ── Handlers ──────────────────────────────────────────────────────────────
 
   function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    setValue(e.target.value);
+    const newValue = e.target.value;
+    setValue(newValue);
     const el = e.target;
     el.style.height = "auto";
     el.style.height = Math.min(el.scrollHeight, 180) + "px";
+
+    // Detect active @ mention session
+    const cursor = el.selectionStart ?? newValue.length;
+    const before = newValue.slice(0, cursor);
+    const match  = before.match(/@(\w*)$/);
+    if (match) {
+      mentionStart.current = cursor - match[0].length;
+      setMentionQuery(match[1] ?? "");
+      setMentionIdx(0);
+    } else {
+      setMentionQuery(null);
+    }
   }
 
   async function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // Mention navigation takes priority
+    if (mentionQuery !== null && filteredOptions.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionIdx((i) => (i + 1) % filteredOptions.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionIdx((i) => (i - 1 + filteredOptions.length) % filteredOptions.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        insertMention(filteredOptions[mentionIdx]?.mention ?? "");
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMentionQuery(null);
+        return;
+      }
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (!canSend || sending) return;
-      const msg = value.trim();
-      const files = attachedFiles;
-      setValue("");
-      setAttachedFiles([]);
-      setSelectedDelegate(null);
-      if (textareaRef.current) textareaRef.current.style.height = "auto";
-      if (onSend && (msg || files.length > 0)) await onSend(msg, files);
+      await doSend();
     }
+  }
+
+  async function doSend() {
+    const msg   = value.trim();
+    const files = attachedFiles;
+    setValue("");
+    setAttachedFiles([]);
+    setSelectedDelegate(null);
+    setMentionQuery(null);
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
+    if (onSend && (msg || files.length > 0)) await onSend(msg, files);
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -127,7 +205,8 @@ export function InputBar({ currentUser, members = [], apiKeyStatus, onSend, send
     setDelegateOpen(false);
   }
 
-  const firstName = (name: string) => name.split(" ")[0];
+  const hasAiMention = value.toLowerCase().includes(aiMention.toLowerCase());
+  const canSend = value.trim().length > 0 || attachedFiles.length > 0;
 
   return (
     <div className="border-t border-border bg-surface shrink-0">
@@ -151,8 +230,8 @@ export function InputBar({ currentUser, members = [], apiKeyStatus, onSend, send
         </div>
       )}
 
-      {/* Claude mention hint */}
-      {hasClaudeMention && !selectedDelegate && (
+      {/* AI mention hint */}
+      {hasAiMention && !selectedDelegate && (
         <div className="mb-2 flex items-center gap-1.5 text-xs">
           {apiKeyStatus === "not_set" || apiKeyStatus === "error" ? (
             <>
@@ -174,7 +253,44 @@ export function InputBar({ currentUser, members = [], apiKeyStatus, onSend, send
       )}
 
       {/* Composer */}
-      <div className="bg-background rounded-xl border border-border focus-within:border-foreground/20 transition-colors">
+      <div className="relative bg-background rounded-xl border border-border focus-within:border-foreground/20 transition-colors">
+
+        {/* @ mention dropdown */}
+        {mentionQuery !== null && filteredOptions.length > 0 && (
+          <div className="absolute bottom-full left-0 mb-2 w-52 bg-surface border border-border rounded-xl shadow-lg overflow-hidden z-20">
+            {filteredOptions.map((opt, i) => (
+              <button
+                key={opt.key}
+                onMouseDown={(e) => { e.preventDefault(); insertMention(opt.mention); }}
+                className="w-full px-3 py-2 flex items-center gap-2.5 text-xs text-left transition-colors"
+                style={{ backgroundColor: i === mentionIdx ? "var(--color-background)" : undefined }}
+              >
+                {opt.type === "ai" && (
+                  <span
+                    className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 text-[9px]"
+                    style={{ backgroundColor: "var(--color-foreground)", color: "var(--color-background)" }}
+                  >
+                    AI
+                  </span>
+                )}
+                {opt.type === "user" && (
+                  <Avatar name={opt.label} color={opt.color} size="xs" />
+                )}
+                {opt.type === "all" && (
+                  <span className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-border text-muted text-[9px]">
+                    ∀
+                  </span>
+                )}
+                <span className="text-foreground font-medium">{opt.mention}</span>
+                <span className="text-muted ml-auto">
+                  {opt.type === "ai"   && aiName}
+                  {opt.type === "user" && "mention"}
+                  {opt.type === "all"  && "everyone"}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Attached file chips */}
         {attachedFiles.length > 0 && (
@@ -204,12 +320,7 @@ export function InputBar({ currentUser, members = [], apiKeyStatus, onSend, send
 
         {/* Input row */}
         <div className="flex items-end gap-3 px-3 py-2.5">
-          <Avatar
-            name={currentUser.name}
-            color={currentUser.color}
-            size="sm"
-            className="shrink-0 mb-0.5"
-          />
+          <Avatar name={currentUser.name} color={currentUser.color} size="sm" className="shrink-0 mb-0.5" />
           <textarea
             ref={textareaRef}
             value={value}
@@ -233,29 +344,16 @@ export function InputBar({ currentUser, members = [], apiKeyStatus, onSend, send
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
               <path
                 d="M11.5 5.8L6.3 11C5.3 12 3.7 12 2.7 11C1.7 10 1.7 8.4 2.7 7.4L7.9 2.2C8.5 1.6 9.5 1.6 10.1 2.2C10.7 2.8 10.7 3.8 10.1 4.4L5.2 9.3C4.9 9.6 4.5 9.6 4.2 9.3C3.9 9 3.9 8.6 4.2 8.3L8.8 3.7"
-                stroke="currentColor"
-                strokeWidth="1.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+                stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"
               />
             </svg>
           </button>
 
           {/* Split send button */}
           <div className="relative flex items-stretch shrink-0 mb-0.5">
-            {/* Main send */}
             <button
               disabled={!canSend || sending}
-              onClick={async () => {
-                if (!canSend || sending) return;
-                const msg = value.trim();
-                const files = attachedFiles;
-                setValue("");
-                setAttachedFiles([]);
-                setSelectedDelegate(null);
-                if (textareaRef.current) textareaRef.current.style.height = "auto";
-                if (onSend && (msg || files.length > 0)) await onSend(msg, files);
-              }}
+              onClick={async () => { if (!canSend || sending) return; await doSend(); }}
               className="w-7 h-8 rounded-l-lg flex items-center justify-center transition-all disabled:opacity-30"
               style={{ backgroundColor: sendColor[currentUser.color] }}
               aria-label="Send"
@@ -269,13 +367,7 @@ export function InputBar({ currentUser, members = [], apiKeyStatus, onSend, send
                 <Avatar name={selectedDelegate.name} color={selectedDelegate.color} size="xs" />
               ) : (
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                  <path
-                    d="M6 10V2M2 6l4-4 4 4"
-                    stroke="white"
-                    strokeWidth="1.6"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
+                  <path d="M6 10V2M2 6l4-4 4 4" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               )}
             </button>
@@ -294,10 +386,7 @@ export function InputBar({ currentUser, members = [], apiKeyStatus, onSend, send
               <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
                 <path
                   d={delegateOpen ? "M1 5.5L4 2.5L7 5.5" : "M1 2.5L4 5.5L7 2.5"}
-                  stroke="white"
-                  strokeWidth="1.4"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+                  stroke="white" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"
                 />
               </svg>
             </button>
@@ -353,30 +442,18 @@ export function InputBar({ currentUser, members = [], apiKeyStatus, onSend, send
         {/* Formatting toolbar */}
         <div className="flex items-center gap-0.5 px-3 pb-2 pt-0.5 border-t border-border/40">
           {([
-            {
-              type: "bold" as const,
-              title: "Bold",
-              node: <span className="text-[11px] font-bold leading-none">B</span>,
-            },
-            {
-              type: "italic" as const,
-              title: "Italic",
-              node: <span className="text-[12px] italic font-serif leading-none">I</span>,
-            },
-            {
-              type: "list" as const,
-              title: "Bullet list",
-              node: (
-                <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                  <circle cx="1.5" cy="2.5" r="1"   fill="currentColor" />
-                  <line x1="4" y1="2.5" x2="10" y2="2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                  <circle cx="1.5" cy="5.5" r="1"   fill="currentColor" />
-                  <line x1="4" y1="5.5" x2="10" y2="5.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                  <circle cx="1.5" cy="8.5" r="1"   fill="currentColor" />
-                  <line x1="4" y1="8.5" x2="10" y2="8.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                </svg>
-              ),
-            },
+            { type: "bold"   as const, title: "Bold",        node: <span className="text-[11px] font-bold leading-none">B</span> },
+            { type: "italic" as const, title: "Italic",      node: <span className="text-[12px] italic font-serif leading-none">I</span> },
+            { type: "list"   as const, title: "Bullet list", node: (
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                <circle cx="1.5" cy="2.5" r="1" fill="currentColor" />
+                <line x1="4" y1="2.5" x2="10" y2="2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                <circle cx="1.5" cy="5.5" r="1" fill="currentColor" />
+                <line x1="4" y1="5.5" x2="10" y2="5.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                <circle cx="1.5" cy="8.5" r="1" fill="currentColor" />
+                <line x1="4" y1="8.5" x2="10" y2="8.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+              </svg>
+            )},
           ] as const).map(({ type, title, node }) => (
             <button
               key={type}
@@ -393,7 +470,7 @@ export function InputBar({ currentUser, members = [], apiKeyStatus, onSend, send
       {/* Bottom row: hint + quick actions */}
       <div className="mt-1.5 flex items-center justify-between px-1">
         <p className="text-[10px] text-muted/40">
-          Enter to send · Shift+Enter for new line · {aiMention} to call {aiName}
+          Enter to send · Shift+Enter for new line · @ to mention
         </p>
         <div className="flex items-center gap-1.5">
           <button
