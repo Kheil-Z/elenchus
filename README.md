@@ -6,6 +6,19 @@
 
 ---
 
+## Features
+
+- **Multiplayer conversations** — shared thread, real-time sync, messages attributed to each person
+- **BYOK per user** — each member adds their own API key; you never pay for anyone else
+- **Multi-provider** — Anthropic (Claude), Google (Gemini), OpenAI (ChatGPT); each user picks their own
+- **Vision + documents** — attach images and PDFs; images sent as vision inputs, PDFs extracted or sent natively to Claude
+- **Project documents** — upload files project-wide or scoped to a single conversation; control when the AI sees them
+- **Custom system prompts** — per-project instructions for the AI
+- **Activity feed** — catch up on what happened while you were away, with unread indicators
+
+
+---
+
 ## Tour
 
 **Real-time multiplayer chat** — two users in the same conversation, one @mentions Claude. Each user has their own API key and can have a different provider; the token cost is attributed to whoever triggered the call. The provider indicator is visible at the bottom of the input.
@@ -23,18 +36,6 @@
 **Settings** — each user sets their own display name, avatar colour, and API key. Keys are encrypted at rest. You can revoke a key or switch providers at any time without affecting other members.
 
 ![Settings page](docs/screenshot-settings.png)
-
----
-
-## Features
-
-- **Multiplayer conversations** — shared thread, real-time sync, messages attributed to each person
-- **BYOK per user** — each member adds their own API key; you never pay for anyone else
-- **Multi-provider** — Anthropic (Claude), Google (Gemini), OpenAI (ChatGPT); each user picks their own
-- **Vision + documents** — attach images and PDFs; images sent as vision inputs, PDFs extracted or sent natively to Claude
-- **Project documents** — upload files project-wide or scoped to a single conversation; control when the AI sees them
-- **Custom system prompts** — per-project instructions for the AI
-- **Activity feed** — catch up on what happened while you were away, with unread indicators
 
 ---
 
