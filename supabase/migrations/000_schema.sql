@@ -4,11 +4,6 @@
 -- =============================================================================
 
 
--- ─── Types ───────────────────────────────────────────────────────────────────
-
-create type public.llm_provider as enum ('anthropic', 'gemini', 'openai');
-
-
 -- ─── users ───────────────────────────────────────────────────────────────────
 -- Mirrors auth.users; populated automatically on signup via trigger below.
 
@@ -17,11 +12,24 @@ create table public.users (
   email                 text        unique not null,
   display_name          text        not null,
   color                 text        not null default 'blue',
-  llm_provider          public.llm_provider,
+  llm_provider          text,
   llm_api_key_encrypted text,
+  llm_custom_base_url   text,
+  llm_custom_agent_name text,
+  llm_custom_model      text,
   created_at            timestamptz not null default now(),
+  constraint llm_provider_valid check (
+    llm_provider in ('anthropic', 'gemini', 'openai', 'custom')
+  ),
   constraint llm_key_consistency check (
-    (llm_provider is null) = (llm_api_key_encrypted is null)
+    (llm_provider is null and llm_api_key_encrypted is null)
+    or (llm_provider is not null and (
+      llm_api_key_encrypted is not null
+      or llm_provider = 'custom'
+    ))
+  ),
+  constraint llm_custom_fields_consistency check (
+    (llm_custom_base_url is null) = (llm_custom_agent_name is null)
   )
 );
 

@@ -12,13 +12,15 @@ import { PROVIDER_DISPLAY_NAME } from "@/lib/llm";
 import type { ApiKeyStatus, LLMProvider } from "@/lib/api-key";
 import type { UserColor } from "@/lib/types";
 
+const RESERVED_AGENT_NAMES = ["claude", "gemini", "openai", "chatgpt", "all", "ai"];
+
 const PROVIDER_OPTIONS: {
   value: LLMProvider;
   label: string;
   description: string;
   placeholder: string;
-  consoleUrl: string;
-  consoleName: string;
+  consoleUrl?: string;
+  consoleName?: string;
 }[] = [
   {
     value: "anthropic",
@@ -44,6 +46,12 @@ const PROVIDER_OPTIONS: {
     consoleUrl: "https://platform.openai.com/api-keys",
     consoleName: "platform.openai.com",
   },
+  {
+    value: "custom",
+    label: "Custom",
+    description: "OpenAI-compatible endpoint",
+    placeholder: "Bearer token — or leave blank",
+  },
 ];
 
 const COLOR_OPTIONS: { value: UserColor; bg: string; ring: string; label: string }[] = [
@@ -67,6 +75,9 @@ export default function SettingsPage() {
   const [status, setStatus] = useState<ApiKeyStatus | "loading">("loading");
   const [selectedProvider, setSelectedProvider] = useState<LLMProvider>("anthropic");
   const [storedProvider,  setStoredProvider]  = useState<LLMProvider | null>(null);
+  const [customBaseUrl,   setCustomBaseUrl]   = useState("");
+  const [customAgentName, setCustomAgentName] = useState("");
+  const [customModel,     setCustomModel]     = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [revoking, setRevoking] = useState(false);
@@ -138,9 +149,12 @@ export default function SettingsPage() {
   }
 
   useEffect(() => {
-    getApiKeyStatus().then(({ status: s, provider }) => {
+    getApiKeyStatus().then(({ status: s, provider, baseUrl, agentName, model }) => {
       setStatus(s);
       if (provider) { setSelectedProvider(provider); setStoredProvider(provider); }
+      if (baseUrl)   setCustomBaseUrl(baseUrl);
+      if (agentName) setCustomAgentName(agentName);
+      if (model)     setCustomModel(model);
       if (s === "not_set" || s === "error") setIsEditing(true);
     });
   }, []);
@@ -166,8 +180,33 @@ export default function SettingsPage() {
 
   async function handleSave() {
     clearFeedback();
+
+    if (selectedProvider === "custom") {
+      const name = customAgentName.trim();
+      if (!name) {
+        setFeedback({ type: "error", message: "Agent name is required" });
+        return;
+      }
+      if (!/^[A-Za-z0-9]{1,32}$/.test(name)) {
+        setFeedback({ type: "error", message: "Agent name must be a single word with letters and numbers only (e.g. Mistral, Llama3)" });
+        return;
+      }
+      if (RESERVED_AGENT_NAMES.includes(name.toLowerCase())) {
+        setFeedback({ type: "error", message: `"${name}" is a reserved name — choose a different agent name` });
+        return;
+      }
+      if (!customBaseUrl.trim()) {
+        setFeedback({ type: "error", message: "Base URL is required" });
+        return;
+      }
+      if (!/^https?:\/\//i.test(customBaseUrl.trim())) {
+        setFeedback({ type: "error", message: "Base URL must start with http:// or https://" });
+        return;
+      }
+    }
+
     setSaving(true);
-    const { error } = await saveApiKey(keyInput.trim(), selectedProvider);
+    const { error } = await saveApiKey(keyInput.trim(), selectedProvider, customBaseUrl.trim(), customAgentName.trim(), customModel.trim());
     setSaving(false);
     if (error) {
       setFeedback({ type: "error", message: error });
@@ -176,7 +215,10 @@ export default function SettingsPage() {
       setStoredProvider(selectedProvider);
       setKeyInput("");
       setIsEditing(false);
-      setFeedback({ type: "success", message: "API key saved." });
+      setFeedback({
+        type: "success",
+        message: selectedProvider === "custom" ? "Custom provider saved." : "API key saved.",
+      });
     }
   }
 
@@ -321,7 +363,7 @@ export default function SettingsPage() {
             {/* Provider picker */}
             <div className="px-6 py-5 flex flex-col gap-3">
               <p className="text-sm font-medium text-foreground">Provider</p>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 {PROVIDER_OPTIONS.map((opt) => (
                   <button
                     key={opt.value}
@@ -350,7 +392,9 @@ export default function SettingsPage() {
                 )}
                 {hasKey && storedProvider && (
                   <span className="text-xs text-muted px-2 py-0.5 rounded-md bg-background border border-border">
-                    {PROVIDER_DISPLAY_NAME[storedProvider]}
+                    {storedProvider === "custom" && customAgentName
+                      ? customAgentName
+                      : PROVIDER_DISPLAY_NAME[storedProvider]}
                   </span>
                 )}
               </div>
@@ -367,12 +411,79 @@ export default function SettingsPage() {
             {/* Key input form */}
             {(isEditing || !hasKey) && status !== "loading" && (
               <div className="px-6 py-5 flex flex-col gap-3">
+                {selectedProvider === "custom" && (
+                  <>
+                    <div className="rounded-lg px-4 py-3 text-sm" style={{ backgroundColor: "var(--color-warning-bg)", border: "1px solid var(--color-warning-border)", color: "var(--color-warning)" }}>
+                      <p className="font-medium mb-1">Local models need a public URL</p>
+                      <p>
+                        Requests are made from the app&apos;s servers — <code className="font-mono">localhost</code> won&apos;t work.
+                        Expose your local endpoint with{" "}
+                        <a href="https://ngrok.com" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">ngrok</a>
+                        {" "}or{" "}
+                        <a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">Cloudflare Tunnel</a>
+                        , then paste the public URL below.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <label htmlFor="agent-name-input" className="text-sm font-medium text-foreground">Agent name</label>
+                      <input
+                        id="agent-name-input"
+                        type="text"
+                        value={customAgentName}
+                        onChange={(e) => { setCustomAgentName(e.target.value); clearFeedback(); }}
+                        placeholder="e.g. Mistral, Llama3, MyBot"
+                        autoComplete="off"
+                        spellCheck={false}
+                        maxLength={32}
+                        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-foreground/20"
+                      />
+                      <p className="text-xs text-muted">Single word, letters and numbers only — becomes your @mention handle in chat.</p>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <label htmlFor="base-url-input" className="text-sm font-medium text-foreground">Base URL</label>
+                      <input
+                        id="base-url-input"
+                        type="text"
+                        value={customBaseUrl}
+                        onChange={(e) => { setCustomBaseUrl(e.target.value); clearFeedback(); }}
+                        placeholder="https://abc.ngrok.io/v1"
+                        autoComplete="off"
+                        spellCheck={false}
+                        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-foreground/20 font-mono"
+                      />
+                      <p className="text-xs text-muted">Must be an OpenAI-compatible endpoint (serves /chat/completions).</p>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <label htmlFor="custom-model-input" className="text-sm font-medium text-foreground">Model</label>
+                      <input
+                        id="custom-model-input"
+                        type="text"
+                        value={customModel}
+                        onChange={(e) => { setCustomModel(e.target.value); clearFeedback(); }}
+                        placeholder="e.g. mlx-community/Qwen3.5-9B-MLX-4bit"
+                        autoComplete="off"
+                        spellCheck={false}
+                        maxLength={200}
+                        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-foreground/20 font-mono"
+                      />
+                      <p className="text-xs text-muted">
+                        Sent as the <span className="font-mono">model</span> field. MLX and Ollama need the exact model id; some servers (LM Studio) ignore it. You can override it per conversation in the chat footer.
+                      </p>
+                    </div>
+                  </>
+                )}
+
                 {(() => {
                   const opt = PROVIDER_OPTIONS.find((o) => o.value === selectedProvider)!;
                   return (
                     <>
                       <label htmlFor="api-key-input" className="text-sm font-medium text-foreground">
-                        {hasKey ? `Replace ${opt.label} API key` : `Add ${opt.label} API key`}
+                        {selectedProvider === "custom"
+                          ? "API key (optional — only for auth-protected endpoints)"
+                          : hasKey ? `Replace ${opt.label} API key` : `Add ${opt.label} API key`}
                       </label>
                       <input
                         id="api-key-input"
@@ -382,7 +493,7 @@ export default function SettingsPage() {
                         placeholder={opt.placeholder}
                         autoComplete="off"
                         spellCheck={false}
-                        autoFocus={isEditing && hasKey}
+                        autoFocus={isEditing && hasKey && selectedProvider !== "custom"}
                         className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-foreground/20 font-mono"
                       />
                     </>
@@ -398,10 +509,10 @@ export default function SettingsPage() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleSave}
-                    disabled={saving || !keyInput.trim()}
+                    disabled={saving || (selectedProvider !== "custom" && !keyInput.trim())}
                     className="text-sm font-medium bg-foreground text-surface px-4 py-2 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    {saving ? "Saving…" : "Save API key"}
+                    {saving ? "Saving…" : selectedProvider === "custom" ? "Save provider" : "Save API key"}
                   </button>
                   {hasKey && isEditing && (
                     <button
@@ -427,9 +538,13 @@ export default function SettingsPage() {
             {hasKey && (
               <div className="px-6 py-4 flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-foreground">Revoke API key</p>
+                  <p className="text-sm font-medium text-foreground">
+                    {storedProvider === "custom" ? "Remove provider" : "Revoke API key"}
+                  </p>
                   <p className="text-xs text-muted mt-0.5">
-                    Removes your key from the server. AI responses will stop working.
+                    {storedProvider === "custom"
+                      ? "Removes your endpoint configuration from the server. AI responses will stop working."
+                      : "Removes your key from the server. AI responses will stop working."}
                   </p>
                 </div>
                 <button
@@ -452,18 +567,25 @@ export default function SettingsPage() {
                       About your API key
                     </p>
                     <ul className="text-sm text-muted space-y-1.5">
-                      <li className="flex items-start gap-2">
-                        <span className="mt-1.5 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
-                        Get your key from{" "}
-                        <a
-                          href={opt.consoleUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-foreground underline underline-offset-2 hover:opacity-70 transition-opacity"
-                        >
-                          {opt.consoleName}
-                        </a>
-                      </li>
+                      {opt.consoleUrl ? (
+                        <li className="flex items-start gap-2">
+                          <span className="mt-1.5 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
+                          Get your key from{" "}
+                          <a
+                            href={opt.consoleUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-foreground underline underline-offset-2 hover:opacity-70 transition-opacity"
+                          >
+                            {opt.consoleName}
+                          </a>
+                        </li>
+                      ) : (
+                        <li className="flex items-start gap-2">
+                          <span className="mt-1.5 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
+                          Leave the key blank for plain Ollama or LM Studio — fill it in for Groq, Together, or any auth-protected endpoint
+                        </li>
+                      )}
                       <li className="flex items-start gap-2">
                         <span className="mt-1.5 shrink-0 w-1 h-1 rounded-full bg-muted/50" />
                         Encrypted and stored server-side — never in your browser

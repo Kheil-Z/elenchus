@@ -47,7 +47,17 @@ export function ChatFooter({ tokenCount, model, provider, apiKeySet, onModelChan
 
       <span className="text-border select-none">·</span>
 
-      {/* Model picker */}
+      {/* Model picker — free-text for custom endpoints, dropdown otherwise */}
+      {provider === "custom" ? (
+        <input
+          type="text"
+          value={model}
+          onChange={(e) => onModelChange?.(e.target.value)}
+          placeholder="model name (e.g. llama3)"
+          spellCheck={false}
+          className="font-mono text-[11px] text-foreground bg-transparent border-b border-border focus:border-foreground/40 focus:outline-none placeholder:text-muted/50 w-44 transition-colors"
+        />
+      ) : (
       <div className="relative" ref={ref}>
         <button
           onClick={() => { if (models.length > 0) setOpen((o) => !o); }}
@@ -94,6 +104,7 @@ export function ChatFooter({ tokenCount, model, provider, apiKeySet, onModelChan
           </div>
         )}
       </div>
+      )}
 
       <span className="text-border select-none">·</span>
 

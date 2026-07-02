@@ -1,7 +1,7 @@
 // TypeScript types mirroring the Supabase schema.
 // These are plain types used throughout the app — not Supabase-generated.
 
-export type LLMProvider = "anthropic" | "gemini" | "openai";
+export type LLMProvider = "anthropic" | "gemini" | "openai" | "custom";
 
 export interface User {
   id: string;
@@ -12,6 +12,12 @@ export interface User {
   llm_provider?: LLMProvider | null;
   /** Encrypted server-side; never returned to the client in plaintext. */
   llm_api_key_encrypted?: string | null;
+  /** OpenAI-compatible endpoint base URL — only set when llm_provider is "custom". */
+  llm_custom_base_url?: string | null;
+  /** User-chosen name for their custom AI; becomes the @mention handle. */
+  llm_custom_agent_name?: string | null;
+  /** Default model name sent to the custom endpoint (e.g. an MLX/Ollama model id). */
+  llm_custom_model?: string | null;
   created_at: string;
 }
 

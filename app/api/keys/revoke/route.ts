@@ -20,7 +20,13 @@ export async function DELETE(req: NextRequest) {
 
   const { error } = await supabaseAdmin
     .from("users")
-    .update({ llm_provider: null, llm_api_key_encrypted: null } as never)
+    .update({
+      llm_provider:          null,
+      llm_api_key_encrypted: null,
+      llm_custom_base_url:   null,
+      llm_custom_agent_name: null,
+      llm_custom_model:      null,
+    } as never)
     .eq("id", user.id);
 
   if (error) {

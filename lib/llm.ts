@@ -9,11 +9,12 @@ import type { ClaudeMessage, ContentBlock } from "@/lib/types/claude";
 
 export interface LLMRequest {
   provider: LLMProvider;
-  apiKey: string;
+  apiKey: string;         // empty string for custom endpoints with no auth
   model: string;
   systemPrompt: string;
   messages: ClaudeMessage[];
   maxTokens?: number;
+  baseUrl?: string;       // required when provider === "custom"
 }
 
 export interface LLMResponse {
@@ -28,12 +29,14 @@ export const DEFAULT_MODEL: Record<LLMProvider, string> = {
   anthropic: "claude-haiku-4-5-20251001",
   gemini:    "gemini-2.5-flash",
   openai:    "gpt-4o-mini",
+  custom:    "",   // no default — the user types their model name
 };
 
 export const PROVIDER_DISPLAY_NAME: Record<LLMProvider, string> = {
   anthropic: "Claude",
   gemini:    "Gemini",
   openai:    "ChatGPT",
+  custom:    "Custom", // replaced at call time by the user's agent name
 };
 
 export const PROVIDER_MODELS: Record<LLMProvider, { id: string; name: string }[]> = {
@@ -52,6 +55,7 @@ export const PROVIDER_MODELS: Record<LLMProvider, { id: string; name: string }[]
     { id: "gpt-4o-mini", name: "GPT-4o mini" },
     { id: "o4-mini",     name: "o4 mini"     },
   ],
+  custom: [],   // free-text model name — no fixed list
 };
 
 // ─── Content-block converters (Anthropic format is the canonical input) ───────
@@ -160,6 +164,66 @@ async function callOpenAI(req: LLMRequest): Promise<LLMResponse> {
   };
 }
 
+// ─── Provider: Custom (OpenAI-compatible endpoint) ────────────────────────────
+// Same wire format as OpenAI, but with a user-supplied base URL and optional
+// auth (plain Ollama / LM Studio setups have none).
+
+async function callCustom(req: LLMRequest): Promise<LLMResponse> {
+  const url = (req.baseUrl ?? "").replace(/\/$/, "") + "/chat/completions";
+
+  const messages = [
+    { role: "system", content: req.systemPrompt },
+    ...req.messages.map((m) => ({ role: m.role, content: toOpenAIContent(m.content) })),
+  ];
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (req.apiKey) headers["Authorization"] = `Bearer ${req.apiKey}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model:      req.model,
+      max_tokens: req.maxTokens ?? 4096,
+      messages,
+    }),
+  });
+
+  // 520–530 are Cloudflare edge statuses that origin servers never emit —
+  // 530 in particular means "no tunnel connected for this hostname", i.e. the
+  // saved URL is stale (quick-tunnel URLs change on every restart).
+  if (response.status >= 520 && response.status <= 530) {
+    throw new LLMError(
+      `Tunnel unreachable (${response.status}) — the endpoint's public URL is stale or the tunnel is down. Restart your tunnel and update the base URL in account settings.`
+    );
+  }
+
+  let body: { error?: { message?: string } | string; choices?: { message?: { content?: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } };
+  try {
+    body = await response.json();
+  } catch {
+    throw new LLMError(`Custom endpoint returned a non-JSON response (${response.status}) — check the base URL in account settings`);
+  }
+
+  if (!response.ok) {
+    // Some servers return { error: "..." } instead of { error: { message } }
+    const rawErr = body?.error;
+    const msg: string = typeof rawErr === "string" ? rawErr : (rawErr?.message ?? `Custom endpoint ${response.status}`);
+    if (response.status === 401 || response.status === 403)
+      throw new LLMAuthError("Custom endpoint rejected the request — check your API key and base URL in account settings");
+    if (response.status === 429) throw new LLMRateLimitError("Rate limit hit — try again in a moment");
+    if (response.status === 404)
+      throw new LLMError(`Custom endpoint 404 — check the model name (settings or chat footer) and that the base URL ends with the right path. Endpoint said: ${msg}`);
+    throw new LLMError(msg);
+  }
+
+  return {
+    content:      body.choices?.[0]?.message?.content ?? "",
+    inputTokens:  body.usage?.prompt_tokens            ?? 0,
+    outputTokens: body.usage?.completion_tokens        ?? 0,
+  };
+}
+
 // ─── Provider: Gemini ─────────────────────────────────────────────────────────
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -208,6 +272,7 @@ export async function callLLM(req: LLMRequest): Promise<LLMResponse> {
     case "anthropic": return callAnthropic(req);
     case "gemini":    return callGemini(req);
     case "openai":    return callOpenAI(req);
+    case "custom":    return callCustom(req);
   }
 }
 
