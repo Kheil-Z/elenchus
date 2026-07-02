@@ -1,8 +1,19 @@
 # Elenchus
 
-**Multiplayer AI workspace.** Multiple people share one conversation thread, each bringing their own API key. @mention Claude, Gemini, or ChatGPT — whoever you tag responds, billed to the person who called them.
+**Multiplayer AI workspace.** Multiple people share one conversation thread, each bringing their own API key. @mention Claude, Gemini, ChatGPT — or your own self-hosted model. Whoever you tag responds, billed to the person who called them.
 
 **[Live demo](https://elenchus-blush.vercel.app/)** — hosted on Supabase free tier, so new account creation may be rate-limited.
+
+## Contents
+
+- [Features](#features)
+- [Tour](#tour)
+- [Bring your own model](#bring-your-own-model)
+- [Self-hosting](#self-hosting)
+- [Project structure](#project-structure)
+- [Tech stack](#tech-stack)
+- [Privacy](#privacy)
+- [License](#license)
 
 ---
 
@@ -10,7 +21,8 @@
 
 - **Multiplayer conversations** — shared thread, real-time sync, messages attributed to each person
 - **BYOK per user** — each member adds their own API key; you never pay for anyone else
-- **Multi-provider** — Anthropic (Claude), Google (Gemini), OpenAI (ChatGPT); each user picks their own
+- **Multi-provider** — Anthropic (Claude), Google (Gemini), OpenAI (ChatGPT); or Custom endpoint: each user picks their own
+- **Bring your own model** — point your account at any OpenAI-compatible endpoint (Ollama, MLX, LM Studio, vLLM, Groq…), name it, and @mention it like any other provider
 - **Vision + documents** — attach images and PDFs; images sent as vision inputs, PDFs extracted or sent natively to Claude
 - **Project documents** — upload files project-wide or scoped to a single conversation; control when the AI sees them
 - **Custom system prompts** — per-project instructions for the AI
@@ -36,6 +48,16 @@
 **Settings** — each user sets their own display name, avatar colour, and API key. Keys are encrypted at rest. You can revoke a key or switch providers at any time without affecting other members.
 
 ![Settings page](docs/screenshot-settings.png)
+
+---
+
+## Bring your own model
+
+Besides the three built-in providers, any **OpenAI-compatible endpoint** can act as your AI — a cloud service (Groq, Together) or a model running on your own machine (Ollama, MLX, LM Studio, vLLM). In **Settings → AI Provider → Custom** you set an agent name (which becomes the @mention handle), the endpoint's base URL, the model name, and an optional API key.
+
+The one thing to know: **AI calls are made by the server, not your browser** — so a model on your own machine needs a public URL. The repo ships a small auth proxy ([`scripts/auth_proxy.py`](scripts/auth_proxy.py)) that locks a free tunnel down to requests carrying your secret token, so nobody but Elenchus can reach your model.
+
+Full walkthrough — tested on macOS with mlx-lm and a Cloudflare tunnel: **[docs/self-hosted-llm.md](docs/self-hosted-llm.md)**
 
 ---
 
@@ -105,6 +127,7 @@ elenchus/
 │   └── privacy/           # Privacy policy (public)
 ├── components/            # Shared UI components
 ├── lib/                   # Types, Supabase client, LLM layer, utilities
+├── scripts/               # Companion tooling (auth proxy for self-hosted models)
 └── supabase/
     └── migrations/        # Single schema file — run once on a fresh project
 ```
@@ -120,7 +143,7 @@ elenchus/
 | Styling | Tailwind CSS v4 |
 | Database + auth | Supabase (Postgres + RLS) |
 | Storage | Supabase Storage |
-| AI providers | Anthropic, Google Gemini, OpenAI |
+| AI providers | Anthropic, Google Gemini, OpenAI, or any OpenAI-compatible endpoint |
 | Hosting | Vercel |
 
 ---

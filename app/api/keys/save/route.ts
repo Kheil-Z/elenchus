@@ -20,36 +20,74 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: { apiKey?: string; provider?: string };
+  let body: { apiKey?: string; provider?: string; baseUrl?: string; agentName?: string; model?: string };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ success: false, error: "Invalid request body" }, { status: 400 });
   }
 
-  const { apiKey, provider } = body;
-  if (!apiKey?.trim()) {
-    return NextResponse.json({ success: false, error: "apiKey is required" }, { status: 400 });
-  }
-  if (apiKey.trim().length > LIMITS.apiKey) {
-    return NextResponse.json({ success: false, error: "Invalid API key" }, { status: 400 });
-  }
-  if (provider !== "anthropic" && provider !== "gemini" && provider !== "openai") {
+  const { apiKey, provider, baseUrl, agentName, model } = body;
+  if (provider !== "anthropic" && provider !== "gemini" && provider !== "openai" && provider !== "custom") {
     return NextResponse.json({ success: false, error: "Invalid provider" }, { status: 400 });
   }
 
-  const { validateApiKey } = await import("@/lib/api-key");
-  const validationError = validateApiKey(apiKey.trim(), provider);
-  if (validationError) {
-    return NextResponse.json({ success: false, error: validationError }, { status: 400 });
+  if (provider === "custom") {
+    // Key is optional (plain Ollama / LM Studio have no auth) — but the
+    // endpoint and the agent's @mention handle are required.
+    if (!baseUrl?.trim()) {
+      return NextResponse.json({ success: false, error: "Base URL is required for custom provider" }, { status: 400 });
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(baseUrl.trim());
+    } catch {
+      return NextResponse.json({ success: false, error: "Base URL is not a valid URL" }, { status: 400 });
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return NextResponse.json({ success: false, error: "Base URL must start with http:// or https://" }, { status: 400 });
+    }
+    if (baseUrl.trim().length > 500) {
+      return NextResponse.json({ success: false, error: "Base URL is too long" }, { status: 400 });
+    }
+    if (!agentName?.trim()) {
+      return NextResponse.json({ success: false, error: "Agent name is required for custom provider" }, { status: 400 });
+    }
+    if (!/^[A-Za-z0-9]{1,32}$/.test(agentName.trim())) {
+      return NextResponse.json({ success: false, error: "Agent name must be a single word with letters and numbers only" }, { status: 400 });
+    }
+    if (["claude", "gemini", "openai", "chatgpt", "all", "ai"].includes(agentName.trim().toLowerCase())) {
+      return NextResponse.json({ success: false, error: `"${agentName.trim()}" is a reserved name — choose a different agent name` }, { status: 400 });
+    }
+    if (model && model.trim().length > 200) {
+      return NextResponse.json({ success: false, error: "Model name is too long" }, { status: 400 });
+    }
+  } else {
+    if (!apiKey?.trim()) {
+      return NextResponse.json({ success: false, error: "apiKey is required" }, { status: 400 });
+    }
   }
 
-  let encrypted: string;
-  try {
-    encrypted = encrypt(apiKey.trim());
-  } catch (e) {
-    console.error("encrypt error:", e);
-    return NextResponse.json({ success: false, error: "Server configuration error" }, { status: 500 });
+  if (apiKey && apiKey.trim().length > LIMITS.apiKey) {
+    return NextResponse.json({ success: false, error: "Invalid API key" }, { status: 400 });
+  }
+
+  if (apiKey?.trim()) {
+    const { validateApiKey } = await import("@/lib/api-key");
+    const validationError = validateApiKey(apiKey.trim(), provider);
+    if (validationError) {
+      return NextResponse.json({ success: false, error: validationError }, { status: 400 });
+    }
+  }
+
+  let encrypted: string | null = null;
+  if (apiKey?.trim()) {
+    try {
+      encrypted = encrypt(apiKey.trim());
+    } catch (e) {
+      console.error("encrypt error:", e);
+      return NextResponse.json({ success: false, error: "Server configuration error" }, { status: 500 });
+    }
   }
 
   // Verify the user row exists in public.users before updating
@@ -71,9 +109,16 @@ export async function POST(req: NextRequest) {
     }, { status: 400 });
   }
 
+  // Custom fields are nulled for non-custom providers so no stale data lingers
   const { error: updateError } = await supabaseAdmin
     .from("users")
-    .update({ llm_provider: provider, llm_api_key_encrypted: encrypted } as never)
+    .update({
+      llm_provider:          provider,
+      llm_api_key_encrypted: encrypted,
+      llm_custom_base_url:   provider === "custom" ? baseUrl!.trim()   : null,
+      llm_custom_agent_name: provider === "custom" ? agentName!.trim() : null,
+      llm_custom_model:      provider === "custom" ? (model?.trim() || null) : null,
+    } as never)
     .eq("id", user.id);
 
   if (updateError) {

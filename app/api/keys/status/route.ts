@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from("users")
-    .select("llm_provider, llm_api_key_encrypted")
+    .select("llm_provider, llm_api_key_encrypted, llm_custom_base_url, llm_custom_agent_name, llm_custom_model")
     .eq("id", user.id)
     .single();
 
@@ -29,8 +29,26 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: false, error: "Failed to fetch status" }, { status: 500 });
   }
 
-  const row = data as { llm_provider: string | null; llm_api_key_encrypted: string | null };
-  const status = row.llm_api_key_encrypted ? "active" : "not_set";
+  const row = data as {
+    llm_provider: string | null;
+    llm_api_key_encrypted: string | null;
+    llm_custom_base_url: string | null;
+    llm_custom_agent_name: string | null;
+    llm_custom_model: string | null;
+  };
 
-  return NextResponse.json({ success: true, status, provider: row.llm_provider });
+  // A custom provider is "active" once its base URL is set — the key is optional
+  const configured =
+    !!row.llm_api_key_encrypted ||
+    (row.llm_provider === "custom" && !!row.llm_custom_base_url);
+  const status = configured ? "active" : "not_set";
+
+  return NextResponse.json({
+    success: true,
+    status,
+    provider: row.llm_provider,
+    baseUrl: row.llm_custom_base_url ?? null,
+    agentName: row.llm_custom_agent_name ?? null,
+    model: row.llm_custom_model ?? null,
+  });
 }

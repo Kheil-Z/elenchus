@@ -13,6 +13,10 @@ const supabaseAdmin = createClient<Database>(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// Vercel kills functions at ~10s by default — not enough for slow generations
+// (self-hosted models, long frontier-model replies). 60s is the Hobby-plan max.
+export const maxDuration = 60;
+
 export const DEFAULT_SYSTEM_PROMPT =
   "You are an AI collaborating with a team in a shared, multiplayer workspace.\n\n" +
   "Messages are labeled with each person's name, so you can see who said what. Other AI assistants " +
@@ -100,7 +104,7 @@ export async function POST(req: NextRequest) {
   // ── 4. User profile + API key ─────────────────────────────────────────────
   const { data: profileRaw, error: profileError } = await supabaseAdmin
     .from("users")
-    .select("display_name, color, llm_provider, llm_api_key_encrypted")
+    .select("display_name, color, llm_provider, llm_api_key_encrypted, llm_custom_base_url, llm_custom_agent_name, llm_custom_model")
     .eq("id", user.id)
     .single();
 
@@ -111,18 +115,34 @@ export async function POST(req: NextRequest) {
     color: string | null;
     llm_provider: LLMProvider | null;
     llm_api_key_encrypted: string | null;
+    llm_custom_base_url: string | null;
+    llm_custom_agent_name: string | null;
+    llm_custom_model: string | null;
   };
 
-  if (!profile.llm_provider || !profile.llm_api_key_encrypted) {
+  if (!profile.llm_provider) {
     return err("Add an API key in account settings before calling the AI", 400);
   }
-
-  let userApiKey: string;
-  try {
-    userApiKey = decrypt(profile.llm_api_key_encrypted);
-  } catch {
-    return err("Update your API key in account settings", 400);
+  // Custom endpoints may have no auth — the key is only required for the other providers
+  if (!profile.llm_api_key_encrypted && profile.llm_provider !== "custom") {
+    return err("Add an API key in account settings before calling the AI", 400);
   }
+  if (profile.llm_provider === "custom" && !profile.llm_custom_base_url) {
+    return err("Set a base URL for your custom provider in account settings", 400);
+  }
+
+  let userApiKey = "";
+  if (profile.llm_api_key_encrypted) {
+    try {
+      userApiKey = decrypt(profile.llm_api_key_encrypted);
+    } catch {
+      return err("Update your API key in account settings", 400);
+    }
+  }
+
+  const assistantDisplayName = profile.llm_provider === "custom"
+    ? (profile.llm_custom_agent_name ?? "AI")
+    : PROVIDER_DISPLAY_NAME[profile.llm_provider];
 
   // ── 5. Project system prompt ──────────────────────────────────────────────
   const { data: projectRaw } = await supabaseAdmin
@@ -282,17 +302,24 @@ export async function POST(req: NextRequest) {
     },
   ];
 
-  const formattedMessages = formatMessagesForClaude(allMessages, PROVIDER_DISPLAY_NAME[profile.llm_provider]);
+  const formattedMessages = formatMessagesForClaude(allMessages, assistantDisplayName);
   const basePrompt = projectSystemPrompt ?? DEFAULT_SYSTEM_PROMPT;
   const systemPrompt = projectDocsContent
     ? `${basePrompt}\n\n[Project Documents]\n${projectDocsContent}`
     : basePrompt;
 
   const requestedModel = body.model ?? DEFAULT_MODEL[profile.llm_provider];
-  const validModels = PROVIDER_MODELS[profile.llm_provider].map((m) => m.id);
-  const model = validModels.includes(requestedModel)
-    ? requestedModel
-    : DEFAULT_MODEL[profile.llm_provider];
+  let model: string;
+  if (profile.llm_provider === "custom") {
+    // Free-text model name — per-conversation override, then the model saved in
+    // settings, then "default" (some servers ignore the field entirely)
+    model = requestedModel.trim() || profile.llm_custom_model?.trim() || "default";
+  } else {
+    const validModels = PROVIDER_MODELS[profile.llm_provider].map((m) => m.id);
+    model = validModels.includes(requestedModel)
+      ? requestedModel
+      : DEFAULT_MODEL[profile.llm_provider];
+  }
 
   // Attach image and document blocks to the last user message
   // (vision/document inputs go in messages, not system prompt — per all provider specs)
@@ -332,6 +359,7 @@ export async function POST(req: NextRequest) {
       model,
       systemPrompt,
       messages: formattedMessages,
+      baseUrl: profile.llm_custom_base_url ?? undefined,
     });
   } catch (e) {
     if (e instanceof LLMError) return err(e.message, e.status);
@@ -349,7 +377,7 @@ export async function POST(req: NextRequest) {
       role: "assistant",
       content: llmResult.content,
       author_user_id: null,
-      author_display_name: PROVIDER_DISPLAY_NAME[profile.llm_provider],
+      author_display_name: assistantDisplayName,
       caller_user_id: user.id,
       payer_user_id: payerUserId,
       model_used: model,

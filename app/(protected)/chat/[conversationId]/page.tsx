@@ -78,6 +78,7 @@ export default function ChatPage() {
   const [mentionsOnly, setMentionsOnly] = useState(false);
   const [apiKeyStatus, setApiKeyStatus] = useState<ApiKeyStatus | "loading">("loading");
   const [currentProvider, setCurrentProvider] = useState<LLMProvider | null>(null);
+  const [customAgentName, setCustomAgentName] = useState("");
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [docMode, setDocMode] = useState<DocMode>("always");
@@ -85,12 +86,24 @@ export default function ChatPage() {
   const onlineIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    getApiKeyStatus().then(({ status, provider }) => {
+    getApiKeyStatus().then(({ status, provider, agentName, model }) => {
       setApiKeyStatus(status);
       setCurrentProvider(provider);
-      if (provider) setSelectedModel(DEFAULT_MODEL[provider]);
+      if (agentName) setCustomAgentName(agentName);
+      // Custom: pre-fill the footer with the model saved in settings (still editable per conversation)
+      if (provider) setSelectedModel(provider === "custom" ? (model ?? "") : DEFAULT_MODEL[provider]);
     });
   }, []);
+
+  // AI identity for the user's configured provider — the custom provider uses
+  // the user-chosen agent name as both display name and @mention handle.
+  const aiName =
+    currentProvider === "custom"      ? (customAgentName || "Custom")
+    : currentProvider === "anthropic" ? "Claude"
+    : currentProvider === "gemini"    ? "Gemini"
+    : currentProvider === "openai"    ? "ChatGPT"
+    : null;
+  const aiMention = aiName ? `@${aiName}` : null;
 
   useEffect(() => {
     const saved = localStorage.getItem(`doc-mode:${conversationId}`) as DocMode | null;
@@ -288,7 +301,13 @@ export default function ChatPage() {
 
     if (fullContent) {
       const lower = fullContent.toLowerCase();
-      const isClaudeCall = lower.includes("@claude") || lower.includes("@gemini") || lower.includes("@openai") || lower.includes("@chatgpt");
+      const customMention = currentProvider === "custom" && aiMention ? aiMention.toLowerCase() : null;
+      const isClaudeCall =
+        lower.includes("@claude") ||
+        lower.includes("@gemini") ||
+        lower.includes("@openai") ||
+        lower.includes("@chatgpt") ||
+        (customMention !== null && lower.includes(customMention));
       if (isClaudeCall) {
         setAwaitingClaude(true);
         // Show the user's message immediately; realtime will swap in the real DB row
@@ -329,7 +348,7 @@ export default function ChatPage() {
             if (parsed.error) errorMsg = parsed.error;
           } catch { /* not JSON */ }
           if (errorMsg.toLowerCase().includes("api key") || errorMsg.toLowerCase().includes("no key")) {
-            errorMsg = "No API key set — add one in settings to use @claude.";
+            errorMsg = `No API key set — add one in settings to use ${aiMention ?? "@claude"}.`;
           }
           setSendError(errorMsg);
           setAwaitingClaude(false);
@@ -480,7 +499,7 @@ export default function ChatPage() {
         loading={loading}
         sending={awaitingClaude}
         mentionsOnly={mentionsOnly}
-        aiName={currentProvider === "anthropic" ? "Claude" : currentProvider === "gemini" ? "Gemini" : currentProvider === "openai" ? "ChatGPT" : "AI"}
+        aiName={aiName ?? "AI"}
       />
       {sendError && (
         <div className="mx-4 mb-2 flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm" style={{ color: "var(--color-error)", backgroundColor: "var(--color-error-bg)", border: "1px solid var(--color-error-border)" }}>
@@ -505,8 +524,8 @@ export default function ChatPage() {
         apiKeyStatus={apiKeyStatus === "loading" ? undefined : apiKeyStatus}
         onSend={handleSend}
         sending={sending}
-        aiMention={currentProvider === "gemini" ? "@gemini" : currentProvider === "openai" ? "@openai" : "@claude"}
-        aiName={currentProvider === "gemini" ? "Gemini" : currentProvider === "openai" ? "ChatGPT" : "Claude"}
+        aiMention={aiMention ?? "@claude"}
+        aiName={aiName ?? "Claude"}
       />
       <ChatFooter
         tokenCount={tokenCount}

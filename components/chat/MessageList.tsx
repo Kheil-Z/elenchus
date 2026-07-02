@@ -121,7 +121,7 @@ function DocChip({
 
 function renderInline(token: string, key: string): ReactNode {
   if (/^\*\*[^*]+\*\*$/.test(token)) return <strong key={key}>{token.slice(2, -2)}</strong>;
-  if (/^@[A-Za-z]+$/.test(token)) {
+  if (/^@[A-Za-z0-9]+$/.test(token)) {
     if (token.toLowerCase() === "@claude")
       return (
         <span
@@ -173,7 +173,7 @@ function renderSegments(segments: ContentSegment[], onDocPreview?: (doc: DocPrev
       const paras = seg.text.split("\n\n");
       paras.forEach((para, pi) => {
         if (pi > 0) paragraphs.push([]);
-        const tokens = para.split(/(\*\*[^*]+\*\*|@[A-Za-z]+)/g);
+        const tokens = para.split(/(\*\*[^*]+\*\*|@[A-Za-z0-9]+)/g);
         tokens.forEach((tok, ti) => {
           paragraphs[paragraphs.length - 1]!.push(renderInline(tok, `${si}-${pi}-${ti}`));
         });

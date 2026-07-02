@@ -22,9 +22,15 @@ async function getAuthHeader(): Promise<string | null> {
 export async function saveApiKey(
   key: string,
   provider: LLMProvider,
+  baseUrl?: string,
+  agentName?: string,
+  model?: string,
 ): Promise<{ error: string | null }> {
-  const validationError = validateApiKey(key, provider);
-  if (validationError) return { error: validationError };
+  // Key is optional for custom endpoints — only validate format when present
+  if (key) {
+    const validationError = validateApiKey(key, provider);
+    if (validationError) return { error: validationError };
+  }
 
   const auth = await getAuthHeader();
   if (!auth) return { error: "Not authenticated" };
@@ -32,7 +38,7 @@ export async function saveApiKey(
   const res = await fetch("/api/keys/save", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: auth },
-    body: JSON.stringify({ apiKey: key, provider }),
+    body: JSON.stringify({ apiKey: key, provider, baseUrl, agentName, model }),
   });
 
   const data = await res.json();
@@ -55,23 +61,30 @@ export async function revokeApiKey(): Promise<{ error: string | null }> {
 export interface KeyStatusResult {
   status: ApiKeyStatus;
   provider: LLMProvider | null;
+  baseUrl: string | null;
+  agentName: string | null;
+  model: string | null;
 }
 
 export async function getApiKeyStatus(): Promise<KeyStatusResult> {
+  const empty = { provider: null, baseUrl: null, agentName: null, model: null };
   const auth = await getAuthHeader();
-  if (!auth) return { status: "error", provider: null };
+  if (!auth) return { status: "error", ...empty };
 
   try {
     const res = await fetch("/api/keys/status", {
       headers: { Authorization: auth },
     });
-    if (!res.ok) return { status: "error", provider: null };
+    if (!res.ok) return { status: "error", ...empty };
     const data = await res.json();
     return {
       status: data.status ?? "error",
       provider: data.provider ?? null,
+      baseUrl: data.baseUrl ?? null,
+      agentName: data.agentName ?? null,
+      model: data.model ?? null,
     };
   } catch {
-    return { status: "error", provider: null };
+    return { status: "error", ...empty };
   }
 }
