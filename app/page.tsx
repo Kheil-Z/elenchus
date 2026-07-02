@@ -125,7 +125,7 @@ const HOW_IT_WORKS = [
   {
     step: "01",
     title: "Bring your own key",
-    body: "Each person adds their AI provider API key (Anthropic, Google, or OpenAI). Keys are encrypted and stored server-side — never in your browser.",
+    body: "Each person adds their AI provider API key (Anthropic, Google, or OpenAI) — or brings their own self-hosted model via any OpenAI-compatible endpoint. Keys are encrypted and stored server-side — never in your browser.",
   },
   {
     step: "02",

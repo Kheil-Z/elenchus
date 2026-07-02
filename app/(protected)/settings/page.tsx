@@ -352,7 +352,7 @@ export default function SettingsPage() {
           </section>
 
           {/* AI Provider section */}
-          <section className="bg-surface border border-border rounded-xl divide-y divide-border">
+          <section className="bg-surface border border-border rounded-xl divide-y divide-border mb-6">
             <div className="px-6 py-5">
               <h2 className="font-medium text-foreground text-base">AI Provider</h2>
               <p className="text-sm text-muted mt-0.5">
